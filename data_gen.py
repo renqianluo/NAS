@@ -11,8 +11,8 @@ from data import *
 parser = argparse.ArgumentParser()
 
 
-parser.add_argument('--data_dir', type=str, default='/tmp/cifar10_data',
-                    help='The path to the CIFAR-10 data directory.')
+parser.add_argument('--data_dir', type=str, default='data',
+                    help='The path to the data directory.')
 
 def main(unused_argv):
   # Using the Winograd non-fused algorithms provides a small performance boost.

@@ -5,12 +5,13 @@ from __future__ import print_function
 import argparse
 import os
 import sys
+import six
 import tensorflow as tf
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--data_dir', type=str, default='/tmp/cifar10_data',
-                    help='The path to the CIFAR-10 data directory.')
+parser.add_argument('--data_dir', type=str, default='data',
+                    help='The path to the data directory.')
 
 
 def to_example(dictionary):
@@ -46,7 +47,7 @@ class DataReader():
 
   def encode_target(self, sequence):
     sequence = sequence.split(' ')
-    return float(sequence[0])
+    return [float(sequence[0])]
 
   def geretator(self, source_path, target_path, data_dir):
     tf.logging.info('Generating data')
