@@ -6,6 +6,7 @@ import argparse
 import os
 import sys
 import numpy as np
+import scipy.stats
 import tensorflow as tf
 import model
 import six
@@ -136,6 +137,11 @@ def input_fn(mode, data_dir, batch_size, num_epochs=1):
     inputs = tf.expand_dims(inputs, axis=-1)
   while targets.shape.ndims < 2:
     targets = tf.expand_dims(targets, axis=-1)
+
+  inputs = {
+    'inputs' : inputs,
+    'targets' : targets,
+  }
   return inputs, targets
 
 def _log_variable_sizes(var_list, tag):
@@ -156,21 +162,32 @@ def _log_variable_sizes(var_list, tag):
     total_size += v_size
   tf.logging.info("%s Total size: %d", tag, total_size)
 
+def _del_dict_nones(d):
+  for k in list(d.keys()):
+    if d[k] is None:
+      del d[k]
+
 def model_fn(features, labels, mode, params):
-  inputs = features
-  
+  inputs = features['inputs']
+  targets = features['targets']  
+
   predict_value = model.encoder(inputs, params, mode == tf.estimator.ModeKeys.TRAIN)
   tf.identity(predict_value, name='predict_value')  
 
   predictions = {
+    'inputs' : inputs,
+    'targets' : targets,
     'predict_value': predict_value,
   }
+
+  _del_dict_nones(predictions)
   
   if mode == tf.estimator.ModeKeys.PREDICT:
     return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
   mean_squared_error = tf.losses.mean_squared_error(labels=labels, predictions=predict_value)
-  tf.identity(mean_squared_error, name='MSE')
+  
+  tf.identity(mean_squared_error, name='squared_error')
   tf.summary.scalar('mean_squared_error', mean_squared_error)
   # Add weight decay to the loss.
   loss = mean_squared_error + params['weight_decay'] * tf.add_n(
@@ -178,9 +195,9 @@ def model_fn(features, labels, mode, params):
 
   if mode == tf.estimator.ModeKeys.EVAL:
     #TODO: pearson
-    mean_squared_error = tf.metrics.mean_squared_error(labels, predict_value)
+    squared_error = tf.metrics.mean_squared_error(labels, predict_value)
     metrics = {
-      'mean_squared_error': mean_squared_error,}
+      'squared_error': squared_error,}
 
     return tf.estimator.EstimatorSpec(
       mode=mode,
@@ -241,7 +258,9 @@ def predict_from_file(estimator, batch_size, filename, decode_to_file=None, deli
       tf.logging.info('Predicting batch %d' % b)
       for i in x[b * batch_size:(b+1) * batch_size]:
         batch_inputs.append(i)
-      yield np.array(batch_inputs).astype(np.int32)
+      yield {
+        'inputs' : np.array(batch_inputs).astype(np.int32),
+      }
 
   def make_input_fn_from_generator(gen):
     first_ex = six.next(gen)
@@ -265,15 +284,23 @@ def predict_from_file(estimator, batch_size, filename, decode_to_file=None, deli
 
     return input_fn
 
+  def input_tensor_to_features_dict(feature_map):
+    x = tf.convert_to_tensor(feature_map['inputs'])
+    while x.shape.ndims < 3:
+      x = tf.expand_dims(x, axis=-1)
+    x = tf.to_int32(x)
+    features = {
+      'inputs' : x,
+      'targets' : None,
+    }
+    return features
+
   def input_fn():
     input_gen = batch_input_fn(num_batches, inputs, batch_size)
     gen_fn = make_input_fn_from_generator(input_gen)
     example = gen_fn()
-    example = tf.convert_to_tensor(example)
-    while example.shape.ndims < 3:
-      example = tf.expand_dims(example, axis=-1)
-    example = tf.to_int32(example)
-    return example
+    features = input_tensor_to_features_dict(example)
+    return features
 
   results = []
   result_iter = estimator.predict(input_fn)
@@ -327,7 +354,7 @@ def main(unused_argv):
     for _ in range(params['train_epochs'] // params['eval_frequency']):
       tensors_to_log = {
           'learning_rate': 'learning_rate',
-          'mean_squared_error': 'MSE',#'mean_squared_error'
+          'mean_squared_error': 'squared_error',#'mean_squared_error'
       }
 
       logging_hook = tf.train.LoggingTensorHook(
@@ -339,10 +366,23 @@ def main(unused_argv):
           hooks=[logging_hook])
       
       # Evaluate the model and print results
+      """
       eval_results = estimator.evaluate(
           input_fn=lambda: input_fn('test', params['data_dir'], _NUM_SAMPLES['test']))
       tf.logging.info('Evaluation on test data set')
       print(eval_results)
+      """
+      result_iter = estimator.predict(lambda: input_fn('test', FLAGS.data_dir, _NUM_SAMPLES['test']))
+      predictions_list, targets_list = [], []
+      for i, result in enumerate(result_iter):
+        predict_value = result['predict_value'].flatten()[0]
+        targets = result['targets'].flatten()[0]
+        predictions_list.append(predict_value)
+        targets_list.append(targets)
+      predictions_list = np.argsort(predictions_list)
+      targets_list = np.argsort(targets_list)
+      pearson_result = scipy.stats.spearmanr(predictions_list, targets_list)
+      tf.logging.info('pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
 
   elif FLAGS.mode == 'test':
     if not os.path.exists(os.path.join(FLAGS.model_dir, 'hparams.json')):
@@ -352,10 +392,21 @@ def main(unused_argv):
   
     estimator = tf.estimator.Estimator(
       model_fn=model_fn, model_dir=FLAGS.model_dir, params=params)
-    eval_results = estimator.evaluate(
+    """eval_results = estimator.evaluate(
           input_fn=lambda: input_fn('test', FLAGS.data_dir, _NUM_SAMPLES['test']))
     tf.logging.info('Evaluation on test data set')
-    print(eval_results)
+    print(eval_results)"""
+    result_iter = estimator.estimator.predict(lambda: input_fn('test', FLAGS.data_dir, _NUM_SAMPLES['test']))
+    predictions_list, targets_list = [], []
+    for i, result in enumerate(result_iter):
+      predict_value = result['predict_value'].flatten()[0]
+      targets = result['targets'].flatten()[0]
+      predictions_list.append(predict_value)
+      targets_list.append(targets)
+    predictions_list = np.argsort(predictions_list)
+    targets_list = np.argsort(targets_list)
+    pearson_result = scipy.stats.spearmanr(predictions_list, targets_list)
+    tf.logging.info('pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
 
   elif FLAGS.mode == 'predict':
     if not os.path.exists(os.path.join(FLAGS.model_dir, 'hparams.json')):
