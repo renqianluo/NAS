@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import os
 import sys
+import argparse
 import numpy as np
 import scipy.stats
 import tensorflow as tf
@@ -18,56 +19,36 @@ _NUM_SAMPLES = {
   'test' : 100,
 }
 
-flags =  tf.app.flags
-
-FLAGS = flags.FLAGS
 
 # Basic model parameters.
 
-flags.DEFINE_string('mode', default='train','')
+parser = argparse.ArgumentParser()
 
-flags.DEFINE_string('data_dir', 'data', '')
-
-flags.DEFINE_string('model_dir', 'model', '')
-
-flags.DEFINE_boolean('restore', False, '')
-
-flags.DEFINE_integer('hidden_size', 32, '')
-
-flags.DEFINE_integer('B', 5, '')
-
-flags.DEFINE_float('weight_decay', 1e-4, '')
-
-flags.DEFINE_integer('vocab_size', 26, '')
-
-flags.DEFINE_integer('train_epochs', 1000, '')
-
-flags.DEFINE_integer('eval_frequency', 10, '')
-
-flags.DEFINE_integer('batch_size', 128, '')
-
-flags.DEFINE_string('lr', 1.0, '')
-
-flags.DEFINE_string('optimizer', 'adam', '')
-
-flags.DEFINE_integer('start_decay_step', 1000, '')
-
-flags.DEFINE_integer('decay_steps', 1000, '')
-
-flags.DEFINE_float('decay_factor', 0.90, '')
-
-flags.DEFINE_float('max_gradient_norm', 5.0, '')
-
-flags.DEFINE_boolean('time_major', False, '')
-
-flags.DEFINE_string('predict_from_file', '', '')
-
-flags.DEFINE_string('predict_to_file', '', '')
+parser.add_argument('--mode', type=str, default='train')
+parser.add_argument('--data_dir', type=str, default='data')
+parser.add_argument('--model_dir', type=str, default='model')
+parser.add_argument('--restore', action='store_true', default=False)
+parser.add_argument('--hidden_size', type=int, default=32)
+parser.add_argument('--B', type=int, default=5)
+parser.add_argument('--weight_decay', type=float, default=1e-4)
+parser.add_argument('--vocab_size', type=float, default=26)
+parser.add_argument('--train_epochs', type=int, default=1000)
+parser.add_argument('--eval_frequency', type=int, default=10)
+parser.add_argument('--batch_size', type=int, default=128)
+parser.add_argument('--lr', type=float, default=1.0)
+parser.add_argument('--optimizer', type=str, default='adam')
+parser.add_argument('--start_decay_step', type=int, default=100)
+parser.add_argument('--decay_steps', type=int, default=1000)
+parser.add_argument('--decay_factor', type=float, default=0.9)
+parser.add_argument('--max_gradient_norm', type=float, default=5.0)
+parser.add_argument('--time_major', action='store_true', default=False)
+parser.add_argument('--predict_from_file', type=str, default=None)
+parser.add_argument('--predict_to_file', type=str, default=None)
 
 SOS=0
 EOS=0
 
-def input_fn(mode, params, data_dir, batch_size, num_epochs=1):
+def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
   """Input_fn using the tf.data input pipeline for CIFAR-10 dataset.
 
   Args:
@@ -80,11 +61,11 @@ def input_fn(mode, params, data_dir, batch_size, num_epochs=1):
     A tuple of images and labels.
   """
   def get_filenames(mode, data_dir):
-  """Returns a list of filenames."""
-  if mode == 'train':
-    return [os.path.join(data_dir, 'train.input'), os.path.join(data_dir, 'train.target')]
-  else:
-    return [os.path.join(data_dir, 'test.input'), os.path.join(data_dir, 'test.target')]
+    """Returns a list of filenames."""
+    if mode == 'train':
+      return [os.path.join(data_dir, 'train.input'), os.path.join(data_dir, 'train.target')]
+    else:
+      return [os.path.join(data_dir, 'test.input'), os.path.join(data_dir, 'test.target')]
 
   files = get_filenames(mode, data_dir)
   input_dataset = tf.data.TextLineDataset(files[0])
@@ -101,9 +82,10 @@ def input_fn(mode, params, data_dir, batch_size, num_epochs=1):
     """Serialized Example to dict of <feature name, Tensor>."""
     sos_id = tf.constant([SOS])
     eos_id = tf.constant([EOS])
-    src = tf.string_to_number(src, out_type=tf.float32)
+    src = tf.string_split([src]).values
+    src = tf.string_to_number(src, out_type=tf.float32)[:params['hidden_size']]
     tgt = tf.string_split([tgt]).values
-    tgt = tf.string_to_number(tgt, out_type=tf.int32)
+    tgt = tf.string_to_number(tgt, out_type=tf.int32)[:params['length']]
     tgt_input = tf.concat([sos_id ,tgt[:-1]], axis=0)
     return (src, tgt_input, tgt)
 
@@ -115,15 +97,13 @@ def input_fn(mode, params, data_dir, batch_size, num_epochs=1):
 
   inputs, targets_inputs, targets = batched_examples
 
-  assert inputs.shape.ndims == 2:
-  while targets_inputs.shape.ndims < 3:
-    targets_inputs = tf.expand_dims(targets_inputs, axis=-1)
-  while targets.shape.ndims < 3:
-    targets = tf.expand_dims(targets, axis=-1)
-
+  assert inputs.shape.ndims == 2
+  assert targets_inputs.shape.ndims == 2
+  assert targets.shape.ndims == 2
+  
   return {
     "inputs" : inputs,
-    "targets_inputs" : targets_inputs
+    "targets_inputs" : targets_inputs,
     "targets" : targets}, targets
 
 def create_vocab_tables(vocab_file):
@@ -140,9 +120,9 @@ def predict_from_file(estimator, batch_size, vocab_file, predict_from_file, pred
     dataset = dataset.batch(FLAGS.batch_size)
     iterator = dataset.make_one_shot_iterator()
     inputs, targets_inputs = iterator.get_next()
-    assert inputs.shape.ndims == 2:
-    while targets_inputs.shape.ndims < 3:
-      targets_inputs = tf.expand_dims(targets_inputs, axis=-1)
+    assert inputs.shape.ndims == 2
+    assert targets_inputs.shape.ndims == 2
+    
     return {
       'inputs' : inputs, 
       'targets_inputs' : targets_inputs,
@@ -223,7 +203,7 @@ def get_params():
 
   return params 
 
-def main(_):
+def main(unparsed):
   # Using the Winograd non-fused algorithms provides a small performance boost.
   os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
 
@@ -253,12 +233,12 @@ def main(_):
 
       estimator.train(
           input_fn=lambda: input_fn(
-              'train', params['data_dir'], params['batch_size'], params['eval_frequency']),
+              params, 'train', params['data_dir'], params['batch_size'], params['eval_frequency']),
           hooks=[logging_hook])
       
       # Evaluate the model and print results
       eval_results = estimator.evaluate(
-          input_fn=lambda: input_fn('test', params['data_dir'], _NUM_SAMPLES['test']))
+          input_fn=lambda: input_fn(params, 'test', params['data_dir'], _NUM_SAMPLES['test']))
       tf.logging.info('Evaluation on test data set')
       print(eval_results)
 
@@ -271,7 +251,7 @@ def main(_):
     estimator = tf.estimator.Estimator(
       model_fn=model_fn, model_dir=FLAGS.model_dir, params=params)
     eval_results = estimator.evaluate(
-          input_fn=lambda: input_fn('test', FLAGS.data_dir, _NUM_SAMPLES['test']))
+          input_fn=lambda: input_fn(params, 'test', FLAGS.data_dir, _NUM_SAMPLES['test']))
     tf.logging.info('Evaluation on test data set')
     print(eval_results)
 
@@ -289,4 +269,5 @@ def main(_):
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  FLAGS, unparsed = parser.parse_known_args()
+  tf.app.run(argv=[sys.argv[0]] + unparsed)

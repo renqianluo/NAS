@@ -3,134 +3,8 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+from tensorflow.python.layers import core as layers_core
 
-
-"""
-class Decoder(object):
-  def __init__(self, params):
-    self.num_layers = params.get('num_layers', 1)
-    self.hidden_size = params['hidden_size']
-    self.batch_size = params['batch_size']
-    self.length = params['length']
-    self.vocab_size = params.get('vocab_size', len(list(_OPERATIONS)) + len(list(_NODES)))
-    self.initializer = tf.random_normal_initializer(0.0, hidden_size**-0.5)
-    self.init_decoder()
-
-  def init_decoder(self):
-    self.ff_state_W = self.get_variable('ff_state_W', [self.hidden_size, self.hidden_size],
-      initializer=self.initializer)
-    self.ff_state_b = self.get_variable('ff_state_b', initializer=tf.zeros(self.hidden_size))
-    self.Wemb = self.get_variable('Wemb', [self.vocab_size, self.hidden_size],
-      initializer=self.initializer)
-    self.W = {}
-    for layer_id in range(self.num_layers):
-      name = 'Wx_{}'.format(layer_id)
-      self.W[name] = tf.get_variable(name, [self.hidden_size, self.hidden_size*4],
-        initializer=self.initializer)
-      name = 'Wh_{}'.format(layer_id)
-      self.W[name] = tf.get_variable(name, [self.hidden_size, self.hidden_size*4],
-        initializer=self.initializer)
-      name = 'b_{}'.format(layer_id)
-      self.b[name] = tf.get_variable(name, initializer=tf.zeros([4*self.hidden_size]))
-      name = 'Wc_{}'.format(layer_id)
-      self.W[name] = tf.get_variable(name, [self.hidden_size, self.hidden_size*4],
-        initializer=self.initializer)
-    self.ff_logit_lstm_W = tf.get_variable('ff_logit_lstm_W', [self.hidden_size, self.hidden_size],
-      initializer=self.initializer)
-    self.ff_logit_lstm_b = tf.get_variable('ff_logit_lstm_b', initializer=tf.zeros(self.hidden_size))
-    self.ff_logit_prev_W = tf.get_variable('ff_logit_prev_W', [self.hidden_size, self.hidden_size],
-      initializer=self.initializer)
-    self.ff_logit_prev_b = tf.get_variable('ff_logit_prev_b', initializer=tf.zeros(self.hidden_size))
-    self.ff_logit_prev_W = tf.get_variable('ff_logit_ctx_W', [self.hidden_size, self.hidden_size],
-      initializer=self.initializer)
-    self.ff_logit_prev_b = tf.get_variable('ff_logit_ctx_b', initializer=tf.zeros(self.hidden_size))
-    self.ff_logit_W = tf.get_variable('ff_logit_W', [self.hidden_size, self.vocab_size],
-      initializer=self.initializer)
-    self.ff_logit_b = tf.get_variable('ff_logit_b', initializer=tf.zeros(self.vocab_size))
-
-  def lstm(state_below, context, init_state, init_memory, layer_id, one_step):
-    n_steps = xstate_below.shape[0].value if state_below.shape.ndims == 3 else 1
-    n_samples = state_below.shape[1].value if state_below.shape.ndims == 3 else state_below.shape[0].value
-    state_below = tf.matmul(state_below, self.W['Wx_{}'.format(layer_id)]) + self.b['b_{}'.format(layer_id)]
-
-
-    def _step_slice(x_, h_, c_, U):
-      h_tmp = h_
-      c_tmp = c_
-      h, c = _lstm_step_slice(x, h_tmp, c_tmp, U[j])
-
-
-
-
-  def decoder(self, tgt_embedding, init_state, context, one_step, init_memory=None):
-    if not one_step:
-      init_state = [init_state for _ in range(self.num_layers)]
-      init_memory = [init_memory for _ in range(self.num_layers)]
-
-    x = tgt_embedding
-
-    for layer_id in range(self.num_layers):
-      x = self.lstm(x, init_state=init_state[layer_id], context=context, 
-        layer_id, init_memory=init_memory[layer_id], one_step=one_step)
-
-    return x
-
-
-  def get_probs(self, hidden_deocder, context_decoder, tgt_embedding):
-    logit_lstm = tf.matmul(hidden_deocder, self.ff_logit_lstm_W) + self.ff_logit_lstm_b
-    logit_prev = tf.matmul(tgt_embedding, self.ff_logit_prev_W) + self.ff_logit_prev_b
-    logit_ctx = tf.matmul(context_decoder, self.ff_logit_ctx_W) + self.ff_logit_ctx_b
-    logit = tf.tanh(logit_lstm + logit_prev + logit_ctx)
-    logit = tf.matmul(logit, self.ff_logit_W) + self.ff_logit_b
-    logit_shp = logit.shape
-    probs = tf.nn.softmax(tf.reshape(logit, [logit_shp[0].value * logit_shp[1].value, logit_shp[2].value]))
-
-    return probs
-
-  def build_model(self, x, y, emb):
-    init_decoder_state = tf.tanh(tf.matmul(emb, self.ff_state_W) + self.ff_logit_b)
-
-    n_timestep, n_samples = x.shape[0].value, x.shape[1].value
-    n_timestep_tgt = y.shape[0].value
-
-    emb_shifted = tf.zeros([1, n_samples, self.vocab_size])
-    emb_shifted = tf.concat([emb_shifted, y[:-1]])
-    tgt_embedding = emb_shifted
-
-    hidden_deocder, context_decoder = self.decoder(
-      tgt_embedding, init_state=init_decoder_state, context=emb, one_step=False)
-    
-    probs = self.get_probs(hidden_deocder, context_decoder, tgt_embedding)
-
-    self.cost = self.build_cost(y, probs)
-
-def decoder(x, params, is_training):
-
-  #num_layers = params['num_layers']
-  hidden_size = params['hidden_size']
-  batch_size = params['batch_size']
-  length = params['length']
-  vocab_size = params.get('vocab_size', len(list(_OPERATIONS)) + len(list(_NODES)))
-  
-  assert x.shape.ndims == 3, '[batch_size, 1, hidden_size]'
-
-  w_s = tf.get_variable('softmax', [hidden_size, vocab_size],
-      initializer=tf.random_normal_initializer(0.0, hidden_size**-0.5))
-
-  logits = tf.zeros([batch_size, 0, hidden_size])
-
-  with tf.variable_scope('body'):
-    lstm_cell = tf.contrib.rnn.LSTMCell(
-      hidden_size,
-      initializer=tf.orthogonal_initializer())
-
-    initial_state = lstm_cell.zero_state(batch_size, dtype=tf.float32)
-    x, state = tf.nn.dynamic_rnn(lstm_cell, x, dtype=tf.float32)
-
-  #logits = 
-  
-  return x
-  """
 class Decoder():
   def __init__(self, params, mode, embedding_decoder, output_layer):
     self.num_layers = params.get('num_layers', 1)
@@ -145,21 +19,23 @@ class Decoder():
     self.mode = mode
 
   def build_decoder(self, decoder_init_state, target_input, batch_size):
+    tgt_sos_id = tf.constant(0)
+    tgt_eos_id = tf.constant(0)
+
     self.batch_size = batch_size
-    
+ 
     with tf.variable_scope('Decoder') as decoder_scope:
+      decoder_init_state = tf.concat([decoder_init_state, decoder_init_state], axis=-1)
       cell, decoder_initial_state = self.build_decoder_cell(decoder_init_state)
 
       if self.mode != tf.estimator.ModeKeys.PREDICT:
         if self.time_major:
           target_input = tf.transpose(target_input)
         decoder_emb_inp = tf.nn.embedding_lookup(self.embedding_decoder, target_input)
-
         #concat_inp_and_context = tf.concat([decoder_emb_inp, target_input], axis=0 if self.time_major else 1)
-
         #Helper
         helper = tf.contrib.seq2seq.TrainingHelper(
-          decoder_emb_inp, self.length,
+          decoder_emb_inp, tf.tile([self.length], [self.batch_size]),
           time_major=self.time_major)
 
         #Decoder
@@ -172,8 +48,8 @@ class Decoder():
         outputs, final_context_state, _ = tf.contrib.seq2seq.dynamic_decode(
           my_decoder,
           output_time_major=self.time_major,
-          swap_memory=True,
-          scop=decoder_scope)
+          swap_memory=False,
+          scope=decoder_scope)
 
         sample_id = outputs.sample_id
 
@@ -181,8 +57,8 @@ class Decoder():
 
       else:
         beam_width = self.beam_width
-        start_tokens = tf.fill([self.batch_size], 0)
-        end_token = 0
+        start_tokens = tf.fill([self.batch_size], tgt_sos_id)
+        end_token = tgt_eos_id
 
         if beam_width > 0:
           my_decoder = tf.contrib.seq2seq.BeamSearchDecoder(
@@ -226,7 +102,8 @@ class Decoder():
 
   def build_decoder_cell(self, decoder_init_state):
     cell = tf.contrib.rnn.LSTMCell(
-      hidden_size,
+      self.hidden_size,
+      state_is_tuple=False,
       initializer=tf.orthogonal_initializer())
 
     # For beam search, we need to replicate encoder infos beam_width times
@@ -268,7 +145,7 @@ class Model(object):
     tf.get_variable_scope().set_initializer(initializer)
 
     # Embeddings
-    self.batch_size = tf.size(self.target_input.shape[0].value)
+    self.batch_size = tf.shape(self.target_input)[0]
     self.W_emb = tf.get_variable('W_emb', [self.vocab_size, self.hidden_size])
     # Projection
     with tf.variable_scope("output_projection"):
@@ -284,7 +161,7 @@ class Model(object):
     elif self.mode == tf.estimator.ModeKeys.PREDICT:
       self.infer_logits, _, self.final_context_state, self.sample_id = res
     
-    self.global_step = tf.get_or_create_global_step()
+    self.global_step = tf.train.get_or_create_global_step()
 
     net_params = tf.trainable_variables()
 
@@ -307,27 +184,28 @@ class Model(object):
         opt = tf.train.GradientDescentOptimizer(self.learning_rate)
       elif params['optimizer'] == "adam":
         assert float(
-            self.learning_rate
-        ) <= 0.001, "! High Adam learning rate %g" % self.learning_rate
+            params['lr']
+        ) <= 0.001, "! High Adam learning rate %g" % params['lr']
         opt = tf.train.AdamOptimizer(self.learning_rate)
+      elif params['optimizer'] == 'adadelta':
+        opt = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate)
 
-      gradients = tf.gradients(self.train_loss, net_params)
-
-      clipped_gradients = tf.clip_by_global_norm(
-        gradients, params['max_gradient_norm'])
-
-      self.update = opt.apply_gradients(
-          zip(clipped_gradients, net_params), global_step=self.global_step)
+      update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+      with tf.control_dependencies(update_ops):
+        gradients, variables = zip(*opt.compute_gradients(self.train_loss))
+        clipped_gradients, _ = tf.clip_by_global_norm(gradients, params['max_gradient_norm'])
+        self.update = opt.apply_gradients(
+          zip(clipped_gradients, variables), global_step=self.global_step)
 
 
       tf.summary.scalar("lr", self.learning_rate),
       tf.summary.scalar("train_loss", self.train_loss),
-      tf.identity(self.learning, 'learning_rate')
+      tf.identity(self.learning_rate, 'learning_rate')
 
     # Print trainable variables
-    print("# Trainable variables")
-    for param in all_params:
-      print("  %s, %s, %s" % (param.name, str(param.get_shape()),
+    tf.logging.info("# Trainable variables")
+    for param in net_params:
+      tf.logging.info("  %s, %s, %s" % (param.name, str(param.get_shape()),
                                         param.op.device))
     
   def train(self):
@@ -360,35 +238,28 @@ class Model(object):
         attention_option is not (luong | scaled_luong |
         bahdanau | normed_bahdanau).
     """
-    print("# creating %s graph ..." % self.mode)
+    tf.logging.info("# creating %s graph ..." % self.mode)
     dtype = tf.float32
 
-    with tf.variable_scope(scope or "dynamic_seq2seq", dtype=dtype):
+    ## Decoder
+    logits, sample_id, final_context_state = self.build_decoder()
 
-      ## Decoder
-      logits, sample_id, final_context_state = self.build_decoder()
-
-      ## Loss
-      if self.mode != tf.estimator.ModeKeys.PREDICT:
-        loss = self._compute_loss(logits)
-      else:
-        loss = None
-      
-      return logits, loss, final_context_state, sample_id
-
+    ## Loss
+    if self.mode != tf.estimator.ModeKeys.PREDICT:
+      loss = self._compute_loss(logits)
+    else:
+      loss = None
+   
+    return logits, loss, final_context_state, sample_id
   
   def build_decoder(self):
     """Build and run a RNN decoder with a final projection layer.
     Subclass must implement this.
-    Args:
-      encoder_outputs: The outputs of encoder for every time step.
-      encoder_state: The final state of the encoder.
-
     Returns:
       A tuple of final logits and final decoder state:
         logits: size [time, batch_size, vocab_size] when time_major=True.
     """
-    decoder = Decoder(self.params, self.mode, self.embedding_decoder, self.output_layer, self.W_emb)
+    decoder = Decoder(self.params, self.mode, self.W_emb, self.output_layer)
     logits, sample_id, final_context_state = decoder.build_decoder(self.init_decoder_state, self.target_input, self.batch_size)
     return logits, sample_id, final_context_state
 
@@ -402,9 +273,10 @@ class Model(object):
     if self.time_major:
       target_output = tf.transpose(target_output)
     max_time = self.get_max_time(target_output)
-    crossent = tf.losses.sparse_softmax_cross_entropy_with_logits(
+    crossent = tf.losses.sparse_softmax_cross_entropy(
         labels=target_output, logits=logits)
     tf.identity(crossent, 'cross_entropy')
+  
     return crossent
 
   def infer(self):
