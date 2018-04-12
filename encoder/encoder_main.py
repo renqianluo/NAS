@@ -171,7 +171,10 @@ def model_fn(features, labels, mode, params):
   inputs = features['inputs']
   targets = features['targets']  
 
-  predict_value = model.encoder(inputs, params, mode == tf.estimator.ModeKeys.TRAIN)
+  res = model.encoder(inputs, params, mode == tf.estimator.ModeKeys.TRAIN)
+  predict_value = res['predict_value']
+  structure_emb = res['structure_emb']
+
   tf.identity(predict_value, name='predict_value')  
 
   predictions = {
@@ -302,23 +305,30 @@ def predict_from_file(estimator, batch_size, filename, decode_to_file=None, deli
     features = input_tensor_to_features_dict(example)
     return features
 
-  results = []
+  scores, embs = [], []
   result_iter = estimator.predict(input_fn)
   for result in result_iter:
-    result = result['predict_value']
-    result = ' '.join(map(str, result.flatten()))
-    tf.logging.info('Inference results OUTPUT: %s' % result)
-    results.append(result)
-  
-  if decode_to_file:
-    output_filename = decode_to_file
-  else:
-    output_filename = '%s.result' % filename
+    predict_value = result['predict_value'].flatten()
+    emb = result['structure_emb'].flatten()
+    predict_value = ' '.join(map(str, predict_value))
+    tf.logging.info('Inference results OUTPUT: %s' % predict_value)
+    scores.append(predict_value)
+    embs.append(emb)
 
-  tf.logging.info('Writing results into %s' % output_filename)
-  with tf.gfile.Open(output_filename, 'w') as f:
-    for result in results:
-      f.write('%s%s' % (result, delimiter))
+  if decode_to_file:
+    score_output_filename = '%s.score'.decode_to_file
+    emb_output_filename = '%s.emb' % decode_to_file
+  else:
+    score_output_filename = '%s.score' % filename
+    emb_output_filename = '%s.emb' % filename
+
+  tf.logging.info('Writing results into {0} and {1}'.format(score_output_filename, emb_output_filename))
+  with tf.gfile.Open(score_output_filename, 'w') as f:
+    for score in scores:
+      f.write('%s%s' % (score, delimiter))
+  with open(emb_output_filename, 'w') as f:
+    for emb in embs:
+      f.write('{}\n'.format(emb))
 
 def get_params():
   params = vars(FLAGS)
@@ -375,13 +385,16 @@ def main(unused_argv):
       result_iter = estimator.predict(lambda: input_fn('test', FLAGS.data_dir, _NUM_SAMPLES['test']))
       predictions_list, targets_list = [], []
       for i, result in enumerate(result_iter):
-        predict_value = result['predict_value'].flatten()[0]
-        targets = result['targets'].flatten()[0]
-        predictions_list.append(predict_value)
-        targets_list.append(targets)
-      predictions_list = np.argsort(predictions_list)
-      targets_list = np.argsort(targets_list)
-      pearson_result = scipy.stats.spearmanr(predictions_list, targets_list)
+        predict_value = result['predict_value'].flatten()#[0]
+        targets = result['targets'].flatten()#[0]
+        predictions_list.extend(predict_value)
+        targets_list.extend(targets)
+      predictions_list = np.array(predictions_list)
+      targets_list = np.array(targets_list)
+      mse = ((predictions_list -  targets_list) ** 2).mean(axis=0)
+      sorted_predictions_list = np.argsort(predictions_list)
+      sorted_targets_list = np.argsort(targets_list)
+      pearson_result = scipy.stats.spearmanr(sorted_predictions_list, sorted_targets_list)
       tf.logging.info('pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
 
   elif FLAGS.mode == 'test':

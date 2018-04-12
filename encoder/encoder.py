@@ -2,7 +2,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from collections import OrderedDict
 import tensorflow as tf
 
 _OPERATIONS=[
@@ -30,45 +29,44 @@ _OPERATIONS=[
 #  'dil_conv 3x3 6',
 ]
 
+_NODES=[
+  'node1',
+  'node2',
+  'node3',
+  'node4',
+  'node5',
+  'node6'
+]
+
 def encoder(x, params, is_training):
 
   #num_layers = params['num_layers']
   hidden_size = params['hidden_size']
   batch_size = params['batch_size']
   length = params['length']
-  vocab_size = params.get('vocab_size', len(list(_OPERATIONS)))
+  vocab_size = params.get('vocab_size', len(list(_OPERATIONS)) + len(list(_NODES)))
   
   assert x.shape.ndims == 3, '[batch_size, length, 1]'
-  static_shape = x.get_shape()
-  #assert length == static_shape[1].value
-  #assert 1 == static_shape[2].value
 
   with tf.name_scope('embedding'):
     x = tf.squeeze(x, axis=2)
-    emb = tf.get_variable('embedding', [vocab_size, hidden_size],
+    emb = tf.get_variable('W_emb', [vocab_size, hidden_size],
     	initializer=tf.random_normal_initializer(0.0, hidden_size**-0.5))
     x = tf.gather(emb, x)
-  
-  assert x.shape.ndims == 3, '[batch_size, length, hidden_dim]'
-  static_shape = x.get_shape()
-  #assert length == static_shape[1].value
-  assert hidden_size == static_shape[2].value
 
   with tf.variable_scope('body'):
     lstm_cell = tf.contrib.rnn.LSTMCell(
       hidden_size,
-      initializer=tf.orthogonal_initializer(),
-      activation=tf.sigmoid)
+      initializer=tf.orthogonal_initializer())
     initial_state = lstm_cell.zero_state(batch_size, dtype=tf.float32)
-    x, state = tf.nn.dynamic_rnn(lstm_cell, x, dtype=tf.float32)
+    x, state = tf.nn.dynamic_rnn(lstm_cell, x, initial_state=initial_state, dtype=tf.float32)
 
-    assert x.shape.ndims == 3 #and \
-      #x.get_shape()[1].value == length and \
-      #x.get_shape()[2].value == hidden_size, '[batch_size, hidden_dim]'
-    x = tf.reduce_mean(x, axis=1)
+    structure_emb = tf.reduce_mean(x, axis=1)
   
-    x = tf.layers.dense(x, 1, activation=tf.sigmoid, name='regression')
+    predict_value = tf.layers.dense(structure_emb, 1, activation=tf.sigmoid, name='regression')
+  
+  return {
+    'structure_emb' : structure_emb,
+    'predict_value' : predict_value,
+  }
 
-    assert x.shape.ndims == 2 and x.get_shape()[1].value == 1
-  
-  return x
