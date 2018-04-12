@@ -42,8 +42,8 @@ parser.add_argument('--decay_steps', type=int, default=1000)
 parser.add_argument('--decay_factor', type=float, default=0.9)
 parser.add_argument('--max_gradient_norm', type=float, default=5.0)
 parser.add_argument('--time_major', action='store_true', default=False)
-parser.add_argument('--predict_from_file', type=str, default=None)
-parser.add_argument('--predict_to_file', type=str, default=None)
+parser.add_argument('--decode_from_file', type=str, default=None)
+parser.add_argument('--decode_to_file', type=str, default=None)
 
 SOS=0
 EOS=0
@@ -111,20 +111,24 @@ def create_vocab_tables(vocab_file):
       vocab_file, default_value=0)
   return vocab_table
 
-def predict_from_file(estimator, batch_size, predict_from_file, predict_to_file):
+def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=None):
   def infer_input_fn():
-    sos_id = tf.constant([SOS])
-    dataset = tf.data.TextLineDataset(predict_from_file)
-    dataset = dataset.map(lambda record: tf.string_to_number(record, out_type=tf.float32), sos_id)
+    sos_id = tf.constant([SOS], dtype=tf.int32)
+    dataset = tf.data.TextLineDataset(decode_from_file)
+    def decode_record(record):
+      src = tf.string_split([record]).values
+      src = tf.string_to_number(src, out_type=tf.float32)
+      return src #, sos_id
+    dataset = dataset.map(decode_record)
     dataset = dataset.batch(FLAGS.batch_size)
     iterator = dataset.make_one_shot_iterator()
-    inputs, targets_inputs = iterator.get_next()
+    inputs = iterator.get_next()
     assert inputs.shape.ndims == 2
-    assert targets_inputs.shape.ndims == 2
+    #assert targets_inputs.shape.ndims == 2
     
     return {
       'inputs' : inputs, 
-      'targets_inputs' : targets_inputs,
+      'targets_inputs' : None,
       'targets' : None,
     }, None
 
@@ -139,7 +143,7 @@ def predict_from_file(estimator, batch_size, predict_from_file, predict_to_file)
   if decode_to_file:
     output_filename = decode_to_file
   else:
-    output_filename = '%s.result' % predict_from_file
+    output_filename = '%s.result' % decode_from_file
     
   tf.logging.info('Writing results into {0}'.format(output_filename))
   with tf.gfile.Open(output_filename, 'w') as f:
@@ -175,7 +179,7 @@ def model_fn(features, labels, mode, params):
     return tf.estimator.EstimatorSpec(
       mode=mode,
       loss=loss)
-  elif mode == tf.estimator.Model.predict:
+  elif mode == tf.estimator.ModeKeys.PREDICT:
     inputs = features['inputs']
     targets_inputs = features['targets_inputs']
     targets = features['targets']
@@ -183,8 +187,8 @@ def model_fn(features, labels, mode, params):
     res = model.decode()
     sample_id = res['sample_id']
     predictions = {
-      'inputs' : inputs,
-      'targets' : targets,
+      #'inputs' : inputs,
+      #'targets' : targets,
       'output' : sample_id,
     }
     _del_dict_nones(predictions)
@@ -263,7 +267,7 @@ def main(unparsed):
     estimator = tf.estimator.Estimator(
       model_fn=model_fn, model_dir=FLAGS.model_dir, params=params)
     
-    predict_from_file(estimator, FLAGS.batch_size, FLAGS.predict_from_file, FLAGS.predict_to_file)
+    predict_from_file(estimator, FLAGS.batch_size, FLAGS.decode_from_file, FLAGS.decode_to_file)
 
 
 if __name__ == '__main__':

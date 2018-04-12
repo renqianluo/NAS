@@ -9,7 +9,6 @@ class Decoder():
   def __init__(self, params, mode, embedding_decoder, output_layer):
     self.num_layers = params.get('num_layers', 1)
     self.hidden_size = params['hidden_size']
-    self.batch_size = params['batch_size']
     self.length = params['length']
     self.vocab_size = params['vocab_size']
     self.embedding_decoder = embedding_decoder
@@ -145,7 +144,7 @@ class Model(object):
     tf.get_variable_scope().set_initializer(initializer)
 
     # Embeddings
-    self.batch_size = tf.shape(self.target_input)[0]
+    self.batch_size = tf.shape(self.init_decoder_state)[0]
     self.W_emb = tf.get_variable('W_emb', [self.vocab_size, self.hidden_size])
     # Projection
     with tf.variable_scope("output_projection"):
@@ -298,9 +297,9 @@ class Model(object):
     """
     res = self.infer()
     sample_id = res['sample_id']
-    # make sure outputs is of shape [batch_size, time]
+    # make sure outputs is of shape [batch_size, time, 1]
     if self.time_major:
-      sample_id = sample_id.transpose()
+      sample_id = tf.transpose(sample_id, [1,0,2])
     return {
       'sample_id' : sample_id
     }

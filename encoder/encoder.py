@@ -42,7 +42,7 @@ def encoder(x, params, is_training):
 
   #num_layers = params['num_layers']
   hidden_size = params['hidden_size']
-  batch_size = params['batch_size']
+  batch_size = tf.shape(x)[0]
   length = params['length']
   vocab_size = params.get('vocab_size', len(list(_OPERATIONS)) + len(list(_NODES)))
   

@@ -8,10 +8,10 @@ import sys
 import numpy as np
 import scipy.stats
 import tensorflow as tf
-import model
 import six
 import random
 import json
+import encoder
 
 _NUM_SAMPLES = {
   'train' : 500,
@@ -43,7 +43,7 @@ parser.add_argument('--B', type=int, default=5,
 parser.add_argument('--weight_decay', type=int, default=1e-4,
                     help='Weight decay.')
 
-parser.add_argument('--vocab_size', type=float, default=19,
+parser.add_argument('--vocab_size', type=float, default=26,
                     help='Vocabulary size.')
 
 parser.add_argument('--train_epochs', type=int, default=300,
@@ -63,13 +63,13 @@ parser.add_argument('--lr', type=float, default=1.0,
                     help='Learning rate when learning rate schedule is constant.')
 
 # Below are arguments for predicting
-parser.add_argument('--predict_from_file', type=str, default=None,
-                    help='File to predict from.')
+parser.add_argument('--decode_from_file', type=str, default=None,
+                    help='File to decode from.')
 
-parser.add_argument('--predict_to_file', type=str, default=None,
+parser.add_argument('--decode_to_file', type=str, default=None,
                     help='File to store predictions.')
 
-def input_fn(mode, data_dir, batch_size, num_epochs=1):
+def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
   """Input_fn using the tf.data input pipeline for CIFAR-10 dataset.
 
   Args:
@@ -106,7 +106,6 @@ def input_fn(mode, data_dir, batch_size, num_epochs=1):
     return (src, tgt)
 
   dataset = dataset.map(decode_record)
-  dataset = dataset.map(cast_int64_to_int32)
 
   #dataset = dataset.prefetch(2 * batch_size)
   dataset = dataset.repeat(num_epochs)
@@ -154,9 +153,9 @@ def _del_dict_nones(d):
 
 def model_fn(features, labels, mode, params):
   inputs = features['inputs']
-  targets = features['targets']  
+  targets = features.get('targets', None)
 
-  res = model.encoder(inputs, params, mode == tf.estimator.ModeKeys.TRAIN)
+  res = encoder.encoder(inputs, params, mode == tf.estimator.ModeKeys.TRAIN)
   predict_value = res['predict_value']
   structure_emb = res['structure_emb']
 
@@ -166,6 +165,7 @@ def model_fn(features, labels, mode, params):
     'inputs' : inputs,
     'targets' : targets,
     'predict_value': predict_value,
+    'structure_emb':structure_emb,
   }
 
   _del_dict_nones(predictions)
@@ -226,10 +226,10 @@ def model_fn(features, labels, mode, params):
     train_op=train_op)
 
 
-def predict_from_file(estimator, batch_size, filename, decode_to_file=None):
+def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=None):
   def infer_input_fn():
-    dataset = tf.data.TextLineDataset(predict_from_file)
-    dataset = dataset.map(lambda record: tf.string_to_number(record, out_type=tf.float32))
+    dataset = tf.data.TextLineDataset(decode_from_file)
+    dataset = dataset.map(lambda record: tf.string_to_number(tf.string_split([record]).values, out_type=tf.int32))
     dataset = dataset.batch(batch_size)
     iterator = dataset.make_one_shot_iterator()
     inputs = iterator.get_next()
@@ -241,28 +241,28 @@ def predict_from_file(estimator, batch_size, filename, decode_to_file=None):
       'inputs' : inputs, 
     }, None
   
-
   scores, embs = [], []
-  result_iter = estimator.predict(input_fn)
+  result_iter = estimator.predict(infer_input_fn)
   for result in result_iter:
     predict_value = result['predict_value'].flatten()
     emb = result['structure_emb'].flatten()
     predict_value = ' '.join(map(str, predict_value))
-    tf.logging.info('Inference results OUTPUT: %s' % predict_value)
+    emb = ' '.join(list(map(str, emb)))
+    tf.logging.info('Inference results OUTPUT: {}'.format(predict_value))
     scores.append(predict_value)
     embs.append(emb)
 
   if decode_to_file:
-    score_output_filename = '%s.score'.decode_to_file
-    emb_output_filename = '%s.emb' % decode_to_file
+    score_output_filename = '{}.score'.format(decode_to_file)
+    emb_output_filename = '{}.emb'.format(decode_to_file)
   else:
-    score_output_filename = '%s.score' % filename
-    emb_output_filename = '%s.emb' % filename
+    score_output_filename = '{}.score'.format(filename)
+    emb_output_filename = '{}.emb'.format(filename)
 
   tf.logging.info('Writing results into {0} and {1}'.format(score_output_filename, emb_output_filename))
   with tf.gfile.Open(score_output_filename, 'w') as f:
     for score in scores:
-      f.write('%s%s' % (score, delimiter))
+      f.write('{}\n'.format(score))
   with open(emb_output_filename, 'w') as f:
     for emb in embs:
       f.write('{}\n'.format(emb))
@@ -319,7 +319,7 @@ def main(unused_argv):
       tf.logging.info('Evaluation on test data set')
       print(eval_results)
       """
-      result_iter = estimator.predict(lambda: input_fn(params, 'test', FLAGS.data_dir, _NUM_SAMPLES['test']))
+      result_iter = estimator.predict(lambda: input_fn(params, 'test', params['data_dir'], params['batch_size']))
       predictions_list, targets_list = [], []
       for i, result in enumerate(result_iter):
         predict_value = result['predict_value'].flatten()#[0]
@@ -367,7 +367,7 @@ def main(unused_argv):
     estimator = tf.estimator.Estimator(
       model_fn=model_fn, model_dir=FLAGS.model_dir, params=params)
     
-    predict_from_file(estimator, FLAGS.batch_size, FLAGS.predict_from_file, FLAGS.predict_to_file)
+    predict_from_file(estimator, FLAGS.batch_size, FLAGS.decode_from_file, FLAGS.decode_to_file)
 
 
 if __name__ == '__main__':
