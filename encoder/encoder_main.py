@@ -69,14 +69,6 @@ parser.add_argument('--predict_from_file', type=str, default=None,
 parser.add_argument('--predict_to_file', type=str, default=None,
                     help='File to store predictions.')
 
-
-def get_filenames(mode, data_dir):
-  """Returns a list of filenames."""
-  if mode == 'train':
-    return [os.path.join(data_dir, 'train.tfrecords')]
-  else:
-    return [os.path.join(data_dir, 'test.tfrecords')]
-
 def input_fn(mode, data_dir, batch_size, num_epochs=1):
   """Input_fn using the tf.data input pipeline for CIFAR-10 dataset.
 
@@ -89,37 +81,29 @@ def input_fn(mode, data_dir, batch_size, num_epochs=1):
   Returns:
     A tuple of images and labels.
   """
-  dataset = tf.data.TFRecordDataset(get_filenames(mode, data_dir))
+  def get_filenames(mode, data_dir):
+    """Returns a list of filenames."""
+    if mode == 'train':
+      return [os.path.join(data_dir, 'train.input'), os.path.join(data_dir, 'train.target')]
+    else:
+      return [os.path.join(data_dir, 'test.input'), os.path.join(data_dir, 'test.target')]
+
+  files = get_filenames(mode, data_dir)
+  input_dataset = tf.data.TextLineDataset(files[0])
+  target_dataset = tf.data.TextLineDataset(files[1])
+
+  dataset = tf.data.Dataset.zip((input_dataset, target_dataset))
   
   is_training = mode == 'train'
 
   if is_training:
     dataset = dataset.shuffle(buffer_size=_NUM_SAMPLES['train'])
 
-  def cast_int64_to_int32(features):
-    f = {}
-    for k, v in six.iteritems(features):
-      if v.dtype == tf.int64:
-        v = tf.to_int32(v)
-      f[k] = v
-    return f
-
-  def decode_record(record):
-    """Serialized Example to dict of <feature name, Tensor>."""
-    data_fields = {
-      'inputs' : tf.FixedLenFeature([4*FLAGS.B*2], tf.int64),
-      'targets' : tf.FixedLenFeature([1], tf.float32)
-    }
-    data_items_to_decoders = {
-        field: tf.contrib.slim.tfexample_decoder.Tensor(field)
-        for field in data_fields
-    }
-    decoder = tf.contrib.slim.tfexample_decoder.TFExampleDecoder(
-        data_fields, data_items_to_decoders)
-
-    decode_items = list(data_items_to_decoders)
-    decoded = decoder.decode(record, items=decode_items)
-    return dict(zip(decode_items, decoded))
+  def decode_record(src, tgt):
+    src = tf.string_split([src]).values
+    src = tf.string_to_number(src, out_type=tf.int32)
+    tgt = tf.string_to_number(tgt, out_type=tf.float32)
+    return (src, tgt)
 
   dataset = dataset.map(decode_record)
   dataset = dataset.map(cast_int64_to_int32)
@@ -130,11 +114,12 @@ def input_fn(mode, data_dir, batch_size, num_epochs=1):
   iterator = dataset.make_one_shot_iterator()
   batched_examples = iterator.get_next()
 
-  inputs = batched_examples['inputs']
-  targets = batched_examples['targets']
+  inputs, targets = batched_examples
 
+  assert inputs.shape.ndims == 2
   while inputs.shape.ndims < 3:
     inputs = tf.expand_dims(inputs, axis=-1)
+  assert targets.shape.ndims == 1
   while targets.shape.ndims < 2:
     targets = tf.expand_dims(targets, axis=-1)
 
@@ -240,70 +225,22 @@ def model_fn(features, labels, mode, params):
     loss=loss,
     train_op=train_op)
 
-def get_inputs(filename, delimiter='\n'):
-  tf.logging.info('Getting inputs')
-  with tf.gfile.Open(filename) as f:
-    text = f.read()
-    records = text.split(delimiter)
-    inputs = [record.strip().split() for record in records]
-    if not inputs[-1]:
-      inputs.pop()
-  return inputs
 
-def predict_from_file(estimator, batch_size, filename, decode_to_file=None, delimiter='\n'):
-  inputs = get_inputs(filename)
-  num_batches = (len(inputs) - 1) // batch_size + 1
+def predict_from_file(estimator, batch_size, filename, decode_to_file=None):
+  def infer_input_fn():
+    dataset = tf.data.TextLineDataset(predict_from_file)
+    dataset = dataset.map(lambda record: tf.string_to_number(record, out_type=tf.float32))
+    dataset = dataset.batch(batch_size)
+    iterator = dataset.make_one_shot_iterator()
+    inputs = iterator.get_next()
+    assert inputs.shape.ndims == 2
+    while inputs.shape.ndims < 3:
+      inputs = tf.expand_dims(inputs, axis=-1)
+
+    return {
+      'inputs' : inputs, 
+    }, None
   
-  def batch_input_fn(num_batches, x, batch_size):
-    tf.logging.info('batch %d' % num_batches)
-    batch_inputs = []
-    for b in range(num_batches):
-      tf.logging.info('Predicting batch %d' % b)
-      for i in x[b * batch_size:(b+1) * batch_size]:
-        batch_inputs.append(i)
-      yield {
-        'inputs' : np.array(batch_inputs).astype(np.int32),
-      }
-
-  def make_input_fn_from_generator(gen):
-    first_ex = six.next(gen)
-    flattened = tf.contrib.framework.nest.flatten(first_ex)
-    types = [t.dtype for t in flattened]
-    shapes = [[None] * len(t.shape) for t in flattened]
-    first_ex_list = [first_ex]
-
-    def py_func():
-      if first_ex_list:
-        example = first_ex_list.pop()
-      else:
-        example = six.next(gen)
-      return tf.contrib.framework.nest.flatten(example)
-
-    def input_fn():
-      flat_example = tf.py_func(py_func, [], types)
-      _ = [t.set_shape(shape) for t, shape in zip(flat_example, shapes)]
-      example = tf.contrib.framework.nest.pack_sequence_as(first_ex, flat_example)
-      return example
-
-    return input_fn
-
-  def input_tensor_to_features_dict(feature_map):
-    x = tf.convert_to_tensor(feature_map['inputs'])
-    while x.shape.ndims < 3:
-      x = tf.expand_dims(x, axis=-1)
-    x = tf.to_int32(x)
-    features = {
-      'inputs' : x,
-      'targets' : None,
-    }
-    return features
-
-  def input_fn():
-    input_gen = batch_input_fn(num_batches, inputs, batch_size)
-    gen_fn = make_input_fn_from_generator(input_gen)
-    example = gen_fn()
-    features = input_tensor_to_features_dict(example)
-    return features
 
   scores, embs = [], []
   result_iter = estimator.predict(input_fn)
@@ -372,7 +309,7 @@ def main(unused_argv):
 
       estimator.train(
           input_fn=lambda: input_fn(
-              'train', params['data_dir'], params['batch_size'], params['eval_frequency']),
+              params, 'train', params['data_dir'], params['batch_size'], params['eval_frequency']),
           hooks=[logging_hook])
       
       # Evaluate the model and print results
@@ -382,7 +319,7 @@ def main(unused_argv):
       tf.logging.info('Evaluation on test data set')
       print(eval_results)
       """
-      result_iter = estimator.predict(lambda: input_fn('test', FLAGS.data_dir, _NUM_SAMPLES['test']))
+      result_iter = estimator.predict(lambda: input_fn(params, 'test', FLAGS.data_dir, _NUM_SAMPLES['test']))
       predictions_list, targets_list = [], []
       for i, result in enumerate(result_iter):
         predict_value = result['predict_value'].flatten()#[0]
@@ -409,7 +346,7 @@ def main(unused_argv):
           input_fn=lambda: input_fn('test', FLAGS.data_dir, _NUM_SAMPLES['test']))
     tf.logging.info('Evaluation on test data set')
     print(eval_results)"""
-    result_iter = estimator.estimator.predict(lambda: input_fn('test', FLAGS.data_dir, _NUM_SAMPLES['test']))
+    result_iter = estimator.estimator.predict(lambda: input_fn(params, 'test', FLAGS.data_dir, _NUM_SAMPLES['test']))
     predictions_list, targets_list = [], []
     for i, result in enumerate(result_iter):
       predict_value = result['predict_value'].flatten()[0]

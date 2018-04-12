@@ -79,7 +79,6 @@ def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
     dataset = dataset.shuffle(buffer_size=_NUM_SAMPLES['train'])
 
   def decode_record(src, tgt):
-    """Serialized Example to dict of <feature name, Tensor>."""
     sos_id = tf.constant([SOS])
     eos_id = tf.constant([EOS])
     src = tf.string_split([src]).values
@@ -112,7 +111,7 @@ def create_vocab_tables(vocab_file):
       vocab_file, default_value=0)
   return vocab_table
 
-def predict_from_file(estimator, batch_size, vocab_file, predict_from_file, predict_to_file):
+def predict_from_file(estimator, batch_size, predict_from_file, predict_to_file):
   def infer_input_fn():
     sos_id = tf.constant([SOS])
     dataset = tf.data.TextLineDataset(predict_from_file)
