@@ -15,7 +15,7 @@ import encoder
 
 _NUM_SAMPLES = {
   'train' : 500,
-  'test' : 100,
+  'test' : 17,
 }
 
 parser = argparse.ArgumentParser()
@@ -34,16 +34,22 @@ parser.add_argument('--model_dir', type=str, default='/tmp/cifar10_model',
 parser.add_argument('--restore', action='store_true', default=False,
                     help='Restore from a configuration params.')
 
+parser.add_argument('--num_layers', type=int, default=1,
+                    help='The number of nodes in a cell.')
+
 parser.add_argument('--hidden_size', type=int, default=32,
                     help='The number of nodes in a cell.')
 
 parser.add_argument('--B', type=int, default=5,
                     help='The number of non-input-nodes in a cell.')
 
-parser.add_argument('--weight_decay', type=int, default=1e-4,
+parser.add_argument('--weight_decay', type=float, default=1e-4,
                     help='Weight decay.')
 
-parser.add_argument('--vocab_size', type=float, default=26,
+parser.add_argument('--max_gradient_norm', type=float, default=5.0,
+                    help='Weight decay.')
+
+parser.add_argument('--vocab_size', type=int, default=26,
                     help='Vocabulary size.')
 
 parser.add_argument('--train_epochs', type=int, default=300,
@@ -55,7 +61,7 @@ parser.add_argument('--eval_frequency', type=int, default=10,
 parser.add_argument('--batch_size', type=int, default=128,
                     help='The number of images per batch.')
 
-parser.add_argument('--lr_schedule', type=str, default='decay',
+parser.add_argument('--lr_schedule', type=str, default='constant',
                     choices=['constant', 'decay'],
                     help='Learning rate schedule schema.')
 
@@ -215,10 +221,10 @@ def model_fn(features, labels, mode, params):
   # Batch norm requires update ops to be added as a dependency to the train_op
   update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
   with tf.control_dependencies(update_ops):
-    train_op = optimizer.minimize(loss, global_step)
-    #gradients, variables = zip(*optimizer.compute_gradients(loss))
-    #gradients, _ = tf.clip_by_global_norm(gradients, 5.0)
-    #train_op = optimizer.apply_gradients(zip(gradients, variables), global_step)
+    #train_op = optimizer.minimize(loss, global_step)
+    gradients, variables = zip(*optimizer.compute_gradients(loss))
+    gradients, _ = tf.clip_by_global_norm(gradients, params['max_gradient_norm'])
+    train_op = optimizer.apply_gradients(zip(gradients, variables), global_step)
 
   return tf.estimator.EstimatorSpec(
     mode=mode,
@@ -256,8 +262,8 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
     score_output_filename = '{}.score'.format(decode_to_file)
     emb_output_filename = '{}.emb'.format(decode_to_file)
   else:
-    score_output_filename = '{}.score'.format(filename)
-    emb_output_filename = '{}.emb'.format(filename)
+    score_output_filename = '{}.score'.format(decode_from_file)
+    emb_output_filename = '{}.emb'.format(decode_from_file)
 
   tf.logging.info('Writing results into {0} and {1}'.format(score_output_filename, emb_output_filename))
   with tf.gfile.Open(score_output_filename, 'w') as f:
@@ -333,6 +339,7 @@ def main(unused_argv):
       sorted_targets_list = np.argsort(targets_list)
       pearson_result = scipy.stats.spearmanr(sorted_predictions_list, sorted_targets_list)
       tf.logging.info('pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
+      tf.logging.info('mean squared error = {0}'.format(mse))
 
   elif FLAGS.mode == 'test':
     if not os.path.exists(os.path.join(FLAGS.model_dir, 'hparams.json')):
@@ -349,14 +356,18 @@ def main(unused_argv):
     result_iter = estimator.estimator.predict(lambda: input_fn(params, 'test', FLAGS.data_dir, _NUM_SAMPLES['test']))
     predictions_list, targets_list = [], []
     for i, result in enumerate(result_iter):
-      predict_value = result['predict_value'].flatten()[0]
-      targets = result['targets'].flatten()[0]
-      predictions_list.append(predict_value)
-      targets_list.append(targets)
-    predictions_list = np.argsort(predictions_list)
-    targets_list = np.argsort(targets_list)
-    pearson_result = scipy.stats.spearmanr(predictions_list, targets_list)
+      predict_value = result['predict_value'].flatten()
+      targets = result['targets'].flatten()
+      predictions_list.extend(predict_value)
+      targets_list.extend(targets)
+    predictions_list = np.array(predictions_list)
+    targets_list = np.array(targets_list)
+    mse = ((predictions_list -  targets_list) ** 2).mean(axis=0)
+    sorted_predictions_list = np.argsort(predictions_list)
+    sorted_targets_list = np.argsort(targets_list)
+    pearson_result = scipy.stats.spearmanr(sorted_predictions_list, sorted_targets_list)
     tf.logging.info('pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
+    tf.logging.info('mean squared error = {0}'.format(mse))
 
   elif FLAGS.mode == 'predict':
     if not os.path.exists(os.path.join(FLAGS.model_dir, 'hparams.json')):

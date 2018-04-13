@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import 
 from __future__ import division
 from __future__ import print_function
 
@@ -7,7 +7,7 @@ from tensorflow.python.layers import core as layers_core
 
 class Decoder():
   def __init__(self, params, mode, embedding_decoder, output_layer):
-    self.num_layers = params.get('num_layers', 1)
+    self.num_layers = params['num_layers']
     self.hidden_size = params['hidden_size']
     self.length = params['length']
     self.vocab_size = params['vocab_size']
@@ -100,11 +100,17 @@ class Decoder():
 
 
   def build_decoder_cell(self, decoder_init_state):
-    cell = tf.contrib.rnn.LSTMCell(
-      self.hidden_size,
-      state_is_tuple=False,
-      initializer=tf.orthogonal_initializer())
-
+    cell_list = []
+    for i in range(self.num_layers):
+      lstm_cell = tf.contrib.rnn.LSTMCell(
+        self.hidden_size,
+        state_is_tuple=False)
+      cell_list.append(lstm_cell)
+    if len(cell_list) == 1:
+      cell = cell_list[0]
+    else:
+      cell = tf.contrib.rnn.MultiRNNCell(cell_list)
+      decoder_init_state = (decoder_init_state,) * self.num_layers
     # For beam search, we need to replicate encoder infos beam_width times
     if self.mode == tf.estimator.ModeKeys.PREDICT and self.beam_width > 0:
       decoder_init_state = tf.contrib.seq2seq.tile_batch(
@@ -140,7 +146,7 @@ class Model(object):
     self.hidden_size = params['hidden_size']
 
     # Initializer
-    initializer = tf.random_normal_initializer(0.0, self.hidden_size**-0.5)
+    initializer = tf.random_normal_initializer(-0.08, 0.08)
     tf.get_variable_scope().set_initializer(initializer)
 
     # Embeddings

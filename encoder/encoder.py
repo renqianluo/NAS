@@ -40,7 +40,7 @@ _NODES=[
 
 def encoder(x, params, is_training):
 
-  #num_layers = params['num_layers']
+  num_layers = params['num_layers']
   hidden_size = params['hidden_size']
   batch_size = tf.shape(x)[0]
   length = params['length']
@@ -51,15 +51,22 @@ def encoder(x, params, is_training):
   with tf.name_scope('embedding'):
     x = tf.squeeze(x, axis=2)
     emb = tf.get_variable('W_emb', [vocab_size, hidden_size],
-    	initializer=tf.random_normal_initializer(0.0, hidden_size**-0.5))
+    	initializer=tf.random_normal_initializer(-0.08, 0.08))
     x = tf.gather(emb, x)
 
   with tf.variable_scope('body'):
-    lstm_cell = tf.contrib.rnn.LSTMCell(
-      hidden_size,
-      initializer=tf.orthogonal_initializer())
-    initial_state = lstm_cell.zero_state(batch_size, dtype=tf.float32)
-    x, state = tf.nn.dynamic_rnn(lstm_cell, x, initial_state=initial_state, dtype=tf.float32)
+    cell_list = []
+    for i in range(num_layers):
+      lstm_cell = tf.contrib.rnn.LSTMCell(
+        hidden_size,
+        initializer=tf.orthogonal_initializer())
+      cell_list.append(lstm_cell)
+    #initial_state = cell_list[0].zero_state(batch_size, dtype=tf.float32)
+    if len(cell_list) == 1:
+      cell = cell_list[0]
+    else:
+      cell = tf.contrib.rnn.MultiRNNCell(cell_list)
+    x, state = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)#initial_state=initial_state, dtype=tf.float32)
 
     structure_emb = tf.reduce_mean(x, axis=1)
   
