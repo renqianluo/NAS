@@ -15,7 +15,7 @@ import encoder
 
 _NUM_SAMPLES = {
   'train' : 500,
-  'test' : 17,
+  'test' : 98,
 }
 
 parser = argparse.ArgumentParser()
@@ -42,6 +42,15 @@ parser.add_argument('--hidden_size', type=int, default=32,
 
 parser.add_argument('--B', type=int, default=5,
                     help='The number of non-input-nodes in a cell.')
+
+parser.add_argument('--length', type=int, default=60,
+                    help='The length of architecture description.')
+
+parser.add_argument('--input_keep_prob', type=float, default=1.0,
+                    help='.')
+
+parser.add_argument('--output_keep_prob', type=float, default=1.0,
+                    help='.')
 
 parser.add_argument('--weight_decay', type=float, default=1e-4,
                     help='Weight decay.')
@@ -160,7 +169,7 @@ def _del_dict_nones(d):
 def model_fn(features, labels, mode, params):
   inputs = features['inputs']
   targets = features.get('targets', None)
-
+  inputs = tf.Print(inputs, [inputs[0]], summarize=100)
   res = encoder.encoder(inputs, params, mode == tf.estimator.ModeKeys.TRAIN)
   predict_value = res['predict_value']
   structure_emb = res['structure_emb']
@@ -211,6 +220,7 @@ def model_fn(features, labels, mode, params):
   else:
     learning_rate = params['lr']
 
+  #_log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
   # Create a tensor named learning_rate for logging purposes
   tf.identity(learning_rate, name='learning_rate')
   tf.summary.scalar('learning_rate', learning_rate)
@@ -275,7 +285,6 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
 
 def get_params():
   params = vars(FLAGS)
-  params['length'] = 4*FLAGS.B*2
 
   if FLAGS.restore:
     with open(os.path.join(FLAGS.model_dir, 'hparams.json'), 'r') as f:
@@ -292,9 +301,6 @@ def main(unused_argv):
   if FLAGS.mode == 'train':
     params = get_params()
 
-    #model_fn(tf.zeros([128,40,1], dtype=tf.int32),tf.zeros([128,1]),tf.estimator.ModeKeys.TRAIN, params)
-
-    #_log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
 
     with open(os.path.join(FLAGS.model_dir, 'hparams.json'), 'w') as f:
       json.dump(params, f)
@@ -325,7 +331,23 @@ def main(unused_argv):
       tf.logging.info('Evaluation on test data set')
       print(eval_results)
       """
-      result_iter = estimator.predict(lambda: input_fn(params, 'test', params['data_dir'], params['batch_size']))
+      result_iter = estimator.predict(lambda: input_fn(params, 'train', FLAGS.data_dir, _NUM_SAMPLES['train']))
+      predictions_list, targets_list = [], []
+      for i, result in enumerate(result_iter):
+        predict_value = result['predict_value'].flatten()
+        targets = result['targets'].flatten()
+        predictions_list.extend(predict_value)
+        targets_list.extend(targets)
+      predictions_list = np.array(predictions_list)
+      targets_list = np.array(targets_list)
+      mse = ((predictions_list -  targets_list) ** 2).mean(axis=0)
+      sorted_predictions_list = np.argsort(predictions_list)
+      sorted_targets_list = np.argsort(targets_list)
+      pearson_result = scipy.stats.spearmanr(sorted_predictions_list, sorted_targets_list)
+      tf.logging.info('training pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
+      tf.logging.info('training mean squared error = {0}'.format(mse))
+      
+      result_iter = estimator.predict(lambda: input_fn(params, 'test', params['data_dir'], _NUM_SAMPLES['test']))
       predictions_list, targets_list = [], []
       for i, result in enumerate(result_iter):
         predict_value = result['predict_value'].flatten()#[0]
@@ -338,8 +360,8 @@ def main(unused_argv):
       sorted_predictions_list = np.argsort(predictions_list)
       sorted_targets_list = np.argsort(targets_list)
       pearson_result = scipy.stats.spearmanr(sorted_predictions_list, sorted_targets_list)
-      tf.logging.info('pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
-      tf.logging.info('mean squared error = {0}'.format(mse))
+      tf.logging.info('test pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
+      tf.logging.info('test mean squared error = {0}'.format(mse))
 
   elif FLAGS.mode == 'test':
     if not os.path.exists(os.path.join(FLAGS.model_dir, 'hparams.json')):
@@ -353,6 +375,7 @@ def main(unused_argv):
           input_fn=lambda: input_fn('test', FLAGS.data_dir, _NUM_SAMPLES['test']))
     tf.logging.info('Evaluation on test data set')
     print(eval_results)"""
+
     result_iter = estimator.estimator.predict(lambda: input_fn(params, 'test', FLAGS.data_dir, _NUM_SAMPLES['test']))
     predictions_list, targets_list = [], []
     for i, result in enumerate(result_iter):
@@ -366,8 +389,8 @@ def main(unused_argv):
     sorted_predictions_list = np.argsort(predictions_list)
     sorted_targets_list = np.argsort(targets_list)
     pearson_result = scipy.stats.spearmanr(sorted_predictions_list, sorted_targets_list)
-    tf.logging.info('pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
-    tf.logging.info('mean squared error = {0}'.format(mse))
+    tf.logging.info('test pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
+    tf.logging.info('test mean squared error = {0}'.format(mse))
 
   elif FLAGS.mode == 'predict':
     if not os.path.exists(os.path.join(FLAGS.model_dir, 'hparams.json')):
