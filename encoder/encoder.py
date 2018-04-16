@@ -35,8 +35,21 @@ def encoder(x, params, is_training):
       cell = cell_list[0]
     else:
       cell = tf.contrib.rnn.MultiRNNCell(cell_list)
-    x, state = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)#initial_state=initial_state, dtype=tf.float32)
-
+    cell_list = []
+    for i in range(num_layers):
+      lstm_cell = tf.contrib.rnn.LSTMCell(
+        hidden_size,
+        initializer=tf.orthogonal_initializer())
+      lstm_cell = tf.contrib.rnn.DropoutWrapper(lstm_cell, input_keep_prob=input_keep_prob, output_keep_prob=output_keep_prob)
+      cell_list.append(lstm_cell)
+    #initial_state = cell_list[0].zero_state(batch_size, dtype=tf.float32)
+    if len(cell_list) == 1:
+      cell_b = cell_list[0]
+    else:
+      cell_b = tf.contrib.rnn.MultiRNNCell(cell_list)
+    #x, state = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)#initial_state=initial_state, dtype=tf.float32)
+    x, state = tf.nn.bidirectional_dynamic_rnn(cell, cell_b, x, dtype=tf.float32)
+    x = x[0] + x[1]
     structure_emb = tf.reduce_mean(x, axis=1)
     #structure_emb = x[:, -1, :]
   

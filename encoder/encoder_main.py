@@ -169,7 +169,6 @@ def _del_dict_nones(d):
 def model_fn(features, labels, mode, params):
   inputs = features['inputs']
   targets = features.get('targets', None)
-  inputs = tf.Print(inputs, [inputs[0]], summarize=100)
   res = encoder.encoder(inputs, params, mode == tf.estimator.ModeKeys.TRAIN)
   predict_value = res['predict_value']
   structure_emb = res['structure_emb']
