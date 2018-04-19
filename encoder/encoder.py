@@ -25,7 +25,7 @@ class Encoder(object):
     self.batch_size = batch_size
     assert x.shape.ndims == 2, '[batch_size, length]'
     x = tf.gather(self.W_emb, x)
-    x = tf.reshape(x, [batch_size, length//3, 3*self.emb_size])
+    x = tf.reshape(x, [batch_size, self.length//3, 3*self.emb_size])
     cell_list = []
     for i in range(self.num_layers):
       lstm_cell = tf.contrib.rnn.LSTMCell(
@@ -48,17 +48,15 @@ class Encoder(object):
 
     self.arch_emb = x
     
-    for i in range(mlp_num_layers):
+    for i in range(self.mlp_num_layers):
       name = 'mlp_{}'.format(i)
-      x = tf.layers.dense(x, mlp_hidden_size, activation=tf.nn.relu, name=name)
+      x = tf.layers.dense(x, self.mlp_hidden_size, activation=tf.nn.relu, name=name)
       x = tf.layers.batch_normalization(
         x, axis=1,
         momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
         center=True, scale=True, training=is_training, fused=True
         )
-
-    self.predict_value = tf.layers.dense(self.x, 1, activation=tf.sigmoid, name='regression')
-  
+    self.predict_value = tf.layers.dense(x, 1, activation=tf.sigmoid, name='regression')
     return {
       'arch_emb' : self.arch_emb,
       'predict_value' : self.predict_value,
@@ -73,13 +71,17 @@ class Model(object):
     self.y = y
     self.params = params
     self.batch_size = tf.shape(x)[0]
+    self.vocab_size = params['vocab_size']
+    self.emb_size = params['encoder_emb_size']
     self.weight_decay = params['weight_decay']
     self.mode = mode
     self.is_training = self.mode == tf.estimator.ModeKeys.TRAIN
+    if self.is_training:
+      self.params['input_keep_prob'] = 1.0
+      self.params['output_keep_prob'] = 1.0
 
     initializer = tf.orthogonal_initializer()
     tf.get_variable_scope().set_initializer(initializer)
-
     self.build_graph(scope=scope)
 
   
@@ -97,11 +99,11 @@ class Model(object):
 
   def build_encoder(self):
     encoder = Encoder(self.params, self.mode, self.W_emb)
-    res = encoder.build_encoder(x, self.batch_size, self.is_training)
+    res = encoder.build_encoder(self.x, self.batch_size, self.is_training)
     return res['arch_emb'], res['predict_value'], res['encoder_output'], res['encoder_state']
 
   def compute_loss(self):
-    mean_squared_error = tf.losses.mean_squared_error(labels=y, predictions=self.predict_value)
+    mean_squared_error = tf.losses.mean_squared_error(labels=self.y, predictions=self.predict_value)
     tf.identity(mean_squared_error, name='squared_error')
     tf.summary.scalar('mean_squared_error', mean_squared_error)
     # Add weight decay to the loss.
@@ -142,9 +144,10 @@ class Model(object):
         zip(clipped_gradients, variables), global_step=self.global_step)
 
 
-      tf.summary.scalar("learning_rate", self.learning_rate),
-      tf.summary.scalar("total_loss", self.total_loss),
-      tf.identity(self.learning_rate, 'learning_rate')
+    tf.identity(self.learning_rate, 'learning_rate')
+    tf.summary.scalar("learning_rate", self.learning_rate),
+    tf.summary.scalar("total_loss", self.total_loss),
+    
     return {
       'train_op' : self.train_op,
       'loss' : self.total_loss,

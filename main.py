@@ -35,12 +35,13 @@ parser.add_argument('--mlp_num_layers', type=int, default=1)
 parser.add_argument('--mlp_hidden_size', type=int, default=32)
 parser.add_argument('--decoder_num_layers', type=int, default=1)
 parser.add_argument('--decoder_hidden_size', type=int, default=32)
-parser.add_argument('--B', type=int, default=5)
+parser.add_argument('--length', type=int, default=60)
 parser.add_argument('--decode_length', type=int, default=60)
 parser.add_argument('--input_keep_prob', type=float, default=1.0)
 parser.add_argument('--output_keep_prob', type=float, default=1.0)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
-parser.add_argument('--vocab_size', type=float, default=26)
+parser.add_argument('--vocab_size', type=int, default=26)
+parser.add_argument('--trade_off', type=float, default=0.5)
 parser.add_argument('--train_epochs', type=int, default=1000)
 parser.add_argument('--eval_frequency', type=int, default=10)
 parser.add_argument('--batch_size', type=int, default=128)
@@ -95,7 +96,7 @@ def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
     tgt = tf.string_to_number(tgt, out_type=tf.float32)
     encoder_input = src
     encoder_target = tgt
-    decoder_input = tf.concat([sos_id ,tgt[:-1]], axis=0)
+    decoder_input = tf.concat([sos_id ,src[:-1]], axis=0)
     decoder_target = src
     return (encoder_input, encoder_target, decoder_input, decoder_target)
 
@@ -108,7 +109,9 @@ def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
   encoder_input, encoder_target, decoder_input, decoder_target = batched_examples
 
   assert encoder_input.shape.ndims == 2
-  assert encoder_target.shape.ndims == 2
+  assert encoder_target.shape.ndims == 1
+  while encoder_target.shape.ndims < 2:
+    encoder_target = tf.expand_dims(encoder_target, axis=-1)
   assert decoder_input.shape.ndims == 2
   assert decoder_target.shape.ndims == 2
   
@@ -174,36 +177,33 @@ def model_fn(features, labels, mode, params):
     encoder_target = features['encoder_target']
     decoder_input = features['decoder_input']
     decoder_target = features['decoder_target']
-    targets_inputs = features['targets_inputs']
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
     my_decoder = decoder.Model(my_encoder.arch_emb, decoder_input, decoder_target, params, mode, 'Decoder')
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
     
-    total_loss = encoder_loss + decoder_loss + params['weight_decay'] * tf.add_n(
+    total_loss = params['trade_off'] * encoder_loss + (1 - params['trade_off']) * decoder_loss + params['weight_decay'] * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
 
     global_step = tf.train.get_or_create_global_step()
     learning_rate = tf.constant(params['lr'])
     if params['optimizer'] == "sgd":
-        learning_rate = tf.cond(
-            global_step < params['start_decay_step'],
-            lambda: learning_rate,
-            lambda: tf.train.exponential_decay(
+      learning_rate = tf.cond(
+        global_step < params['start_decay_step'],
+        lambda: learning_rate,
+        lambda: tf.train.exponential_decay(
                 learning_rate,
                 (global_step - params['start_decay_step']),
                 params['decay_steps'],
                 params['decay_factor'],
                 staircase=True),
-            name="learning_rate")
-        opt = tf.train.GradientDescentOptimizer(learning_rate)
-      elif params['optimizer'] == "adam":
-        assert float(
-            params['lr']
-        ) <= 0.001, "! High Adam learning rate %g" % params['lr']
-        opt = tf.train.AdamOptimizer(learning_rate)
-      elif params['optimizer'] == 'adadelta':
-        opt = tf.train.AdadeltaOptimizer(learning_rate=learning_rate)
+                name="calc_learning_rate")
+      opt = tf.train.GradientDescentOptimizer(learning_rate)
+    elif params['optimizer'] == "adam":
+      assert float(params['lr']) <= 0.001, "! High Adam learning rate %g" % params['lr']
+      opt = tf.train.AdamOptimizer(learning_rate)
+    elif params['optimizer'] == 'adadelta':
+      opt = tf.train.AdadeltaOptimizer(learning_rate=learning_rate)
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):
@@ -212,14 +212,12 @@ def model_fn(features, labels, mode, params):
       train_op = opt.apply_gradients(
         zip(clipped_gradients, variables), global_step=global_step)
 
-
-      tf.summary.scalar("learning_rate", learning_rate),
-      tf.summary.scalar("total_loss", total_loss),
-      tf.identity(learning_rate, 'learning_rate')
-
+    tf.identity(learning_rate, 'learning_rate')
+    tf.summary.scalar("learning_rate", learning_rate),
+    tf.summary.scalar("total_loss", total_loss),
     return tf.estimator.EstimatorSpec(
       mode=mode,
-      loss=loss,
+      loss=total_loss,
       train_op=train_op)
 
   elif mode == tf.estimator.ModeKeys.EVAL:
@@ -227,24 +225,30 @@ def model_fn(features, labels, mode, params):
     encoder_target = features['encoder_target']
     decoder_input = features['decoder_input']
     decoder_target = features['decoder_target']
-    targets_inputs = features['targets_inputs']
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
     my_decoder = decoder.Model(my_encoder.arch_emb, decoder_input, decoder_target, params, mode, 'Decoder')
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
-    total_loss = encoder_loss + decoder_loss + params['weight_decay'] * tf.add_n(
+    total_loss = params['trade_off'] * encoder_loss + (1 - params['trade_off']) * decoder_loss + params['weight_decay'] * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
     return tf.estimator.EstimatorSpec(
       mode=mode,
       loss=total_loss)
   elif mode == tf.estimator.ModeKeys.PREDICT:
     encoder_input = features['encoder_input']
+    encoder_target = features.get('encoder_target', None)
+    decoder_target = features.get('encoder_target', None)
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
     my_decoder = decoder.Model(my_encoder.arch_emb, None, None, params, mode, 'Decoder')
-    res = model.decode()
+    res = my_encoder.infer()
+    predict_value = res['predict_value']
+    res = my_decoder.decode()
     sample_id = res['sample_id']
     predictions = {
-      'output' : sample_id,
+      'arch' : decoder_target,
+      'ground_truth_value' : encoder_target,
+      'predict_value' : predict_value,
+      'sample_id' : sample_id,
     }
     _del_dict_nones(predictions)
 
@@ -282,7 +286,8 @@ def main(unparsed):
     for _ in range(params['train_epochs'] // params['eval_frequency']):
       tensors_to_log = {
           'learning_rate': 'learning_rate',
-          'cross_entropy': 'cross_entropy',#'mean_squared_error'
+          'mean_squared_error': 'Encoder/squared_error',#'mean_squared_error'
+          'cross_entropy': 'Decoder/cross_entropy',#'mean_squared_error'
       }
 
       logging_hook = tf.train.LoggingTensorHook(

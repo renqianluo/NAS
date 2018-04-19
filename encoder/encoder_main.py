@@ -41,7 +41,7 @@ parser.add_argument('--vocab_size', type=int, default=26)
 parser.add_argument('--train_epochs', type=int, default=300)
 parser.add_argument('--eval_frequency', type=int, default=10)
 parser.add_argument('--batch_size', type=int, default=128)
-parser.add_argument('--optimizer', type=float, default='adadelta')
+parser.add_argument('--optimizer', type=str, default='adadelta')
 parser.add_argument('--lr_schedule', type=str, default='constant',
                     choices=['constant', 'decay'])
 parser.add_argument('--lr', type=float, default=1.0)
@@ -99,8 +99,6 @@ def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
   inputs, targets = batched_examples
 
   assert inputs.shape.ndims == 2
-  while inputs.shape.ndims < 3:
-    inputs = tf.expand_dims(inputs, axis=-1)
   assert targets.shape.ndims == 1
   while targets.shape.ndims < 2:
     targets = tf.expand_dims(targets, axis=-1)
@@ -160,12 +158,14 @@ def model_fn(features, labels, mode, params):
       eval_metric_ops=metrics)
   elif mode == tf.estimator.ModeKeys.PREDICT:
     inputs = features['inputs']
+    targets = features.get('targets', None)
     model = encoder.Model(inputs, None, params, mode, 'Encoder')
     res = model.infer()
     arch_emb = res['arch_emb']
     predict_value = res['predict_value']
     predictions = {
       'inputs' : inputs,
+      'targets' : targets,
       'predict_value': predict_value,
       'arch_emb':arch_emb,
     }
@@ -223,6 +223,21 @@ def get_params():
   return params 
 
 
+def pairwise_accuracy(la, lb):
+  N = len(la)
+  assert N == len(lb)
+  total = 0
+  count = 0
+  for i in range(N):
+    for j in range(i+1, N):
+      total += 1
+      if la[i] >= la[j] and lb[i] >= lb[j]
+        count += 1
+      if la[i] < la[j] and lb[i] < lb[j]
+        count += 1
+  return float(total) / count
+
+
 def main(unused_argv):
   # Using the Winograd non-fused algorithms provides a small performance boost.
   os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
@@ -242,7 +257,7 @@ def main(unused_argv):
     for _ in range(params['train_epochs'] // params['eval_frequency']):
       tensors_to_log = {
           'learning_rate': 'learning_rate',
-          'mean_squared_error': 'squared_error',#'mean_squared_error'
+          'mean_squared_error': 'Encoder/squared_error',#'mean_squared_error'
       }
 
       logging_hook = tf.train.LoggingTensorHook(
@@ -273,7 +288,9 @@ def main(unused_argv):
       sorted_predictions_list = np.argsort(predictions_list)
       sorted_targets_list = np.argsort(targets_list)
       pearson_result = scipy.stats.spearmanr(sorted_predictions_list, sorted_targets_list)
+      pairwise_acc = pairwise_accuracy(targets_list, predictions_list)
       tf.logging.info('training pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
+      tf.logging.info('training pairwise accuracy = {0}'.format(pairwise_acc))
       tf.logging.info('training mean squared error = {0}'.format(mse))
       
       result_iter = estimator.predict(lambda: input_fn(params, 'test', params['data_dir'], _NUM_SAMPLES['test']))
@@ -289,7 +306,9 @@ def main(unused_argv):
       sorted_predictions_list = np.argsort(predictions_list)
       sorted_targets_list = np.argsort(targets_list)
       pearson_result = scipy.stats.spearmanr(sorted_predictions_list, sorted_targets_list)
+      pairwise_acc = pairwise_accuracy(targets_list, predictions_list)
       tf.logging.info('test pearson correlation = {0}, pvalue = {1}'.format(pearson_result.correlation, pearson_result.pvalue))
+      tf.logging.info('test pairwise accuracy = {0}'.format(pairwise_acc))
       tf.logging.info('test mean squared error = {0}'.format(mse))
 
   elif FLAGS.mode == 'test':

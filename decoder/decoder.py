@@ -48,8 +48,7 @@ class Decoder():
       outputs, final_context_state, _ = tf.contrib.seq2seq.dynamic_decode(
         my_decoder,
         output_time_major=self.time_major,
-        swap_memory=False,
-        scope=decoder_scope)
+        swap_memory=False)
 
       sample_id = outputs.sample_id
 
@@ -138,11 +137,15 @@ class Model(object):
     self.target_input = target_input
     self.target = target
     self.mode = mode
-
     self.vocab_size = params['vocab_size']
     self.num_layers = params['decoder_num_layers']
     self.time_major = params['time_major']
     self.hidden_size = params['decoder_hidden_size']
+    self.weight_decay = params['weight_decay']
+    self.is_traing = mode == tf.estimator.ModeKeys.TRAIN
+    if self.is_traing:
+      self.params['input_keep_prob'] = 1.0
+      self.params['output_keep_prob'] = 1.0
 
     # Initializer
     initializer = tf.orthogonal_initializer()
@@ -165,7 +168,7 @@ class Model(object):
 
       ## Loss
       if self.mode != tf.estimator.ModeKeys.PREDICT:
-        self.compute_loss(logits)
+        self.compute_loss()
       else:
         self.loss = None
         self.total_loss = None
@@ -179,17 +182,17 @@ class Model(object):
     time_axis = 0 if self.time_major else 1
     return tensor.shape[time_axis].value or tf.shape(tensor)[time_axis]
  
-  def compute_loss(self, logits):
+  def compute_loss(self):
     """Compute optimization loss."""
     target_output = self.target
     if self.time_major:
       target_output = tf.transpose(target_output)
     max_time = self.get_max_time(target_output)
     crossent = tf.losses.sparse_softmax_cross_entropy(
-        labels=target_output, logits=logits)
+        labels=target_output, logits=self.logits)
     tf.identity(crossent, 'cross_entropy')
     self.loss = crossent
-    total_loss = mean_squared_error + self.weight_decay * tf.add_n(
+    total_loss = crossent + self.weight_decay * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
     self.total_loss = total_loss
   
@@ -227,9 +230,9 @@ class Model(object):
         zip(clipped_gradients, variables), global_step=self.global_step)
 
 
-    tf.summary.scalar("lr", self.learning_rate),
-    tf.summary.scalar("train_loss", self.total_loss),
     tf.identity(self.learning_rate, 'learning_rate')
+    tf.summary.scalar("learning_rate", self.learning_rate),
+    tf.summary.scalar("train_loss", self.total_loss),
 
     return {
       'train_op': self.train_op, 
