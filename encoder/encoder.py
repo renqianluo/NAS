@@ -45,6 +45,7 @@ class Encoder(object):
     self.encoder_output = x
     self.encoder_state = state
     x = tf.reduce_mean(x, axis=1)
+    x = tf.nn.l2_normalize(x, dim=1)
 
     self.arch_emb = x
     

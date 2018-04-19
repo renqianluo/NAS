@@ -231,11 +231,11 @@ def pairwise_accuracy(la, lb):
   for i in range(N):
     for j in range(i+1, N):
       total += 1
-      if la[i] >= la[j] and lb[i] >= lb[j]
+      if la[i] >= la[j] and lb[i] >= lb[j]:
         count += 1
-      if la[i] < la[j] and lb[i] < lb[j]
+      if la[i] < la[j] and lb[i] < lb[j]:
         count += 1
-  return float(total) / count
+  return float(count) / total
 
 
 def main(unused_argv):
