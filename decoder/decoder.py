@@ -11,6 +11,8 @@ class Decoder():
     self.hidden_size = params['decoder_hidden_size']
     self.length = params['decode_length']
     self.vocab_size = params['vocab_size']
+    self.input_keep_prob = params['input_keep_prob']
+    self.output_keep_prob = params['output_keep_prob']
     self.embedding_decoder = embedding_decoder
     self.output_layer = output_layer
     self.time_major = params['time_major']
@@ -104,6 +106,10 @@ class Decoder():
       lstm_cell = tf.contrib.rnn.LSTMCell(
         self.hidden_size,
         state_is_tuple=False)
+      lstm_cell = tf.contrib.rnn.DropoutWrapper(
+        lstm_cell, 
+        input_keep_prob=self.input_keep_prob, 
+        output_keep_prob=self.output_keep_prob)
       cell_list.append(lstm_cell)
     if len(cell_list) == 1:
       cell = cell_list[0]
