@@ -28,9 +28,12 @@ parser.add_argument('--mode', type=str, default='train')
 parser.add_argument('--data_dir', type=str, default='data')
 parser.add_argument('--model_dir', type=str, default='model')
 parser.add_argument('--restore', action='store_true', default=False)
-parser.add_argument('--num_layers', type=int, default=1)
-parser.add_argument('--hidden_size', type=int, default=32)
+parser.add_argument('--decoder_num_layers', type=int, default=1)
+parser.add_argument('--decoder_hidden_size', type=int, default=32)
 parser.add_argument('--B', type=int, default=5)
+parser.add_argument('--decode_length', type=int, default=60)
+parser.add_argument('--input_keep_prob', type=float, default=1.0)
+parser.add_argument('--output_keep_prob', type=float, default=1.0)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
 parser.add_argument('--vocab_size', type=float, default=26)
 parser.add_argument('--train_epochs', type=int, default=1000)
@@ -162,7 +165,7 @@ def model_fn(features, labels, mode, params):
     inputs = features['inputs']
     targets_inputs = features['targets_inputs']
     targets = labels
-    model = decoder.Model(inputs, targets_inputs, targets, params, mode)
+    model = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder')
     res = model.train()
     train_op = res['train_op']
     loss = res['loss']
@@ -198,7 +201,6 @@ def model_fn(features, labels, mode, params):
 
 def get_params():
   params = vars(FLAGS)
-  params['length'] = 4*FLAGS.B*2
 
   if FLAGS.restore:
     with open(os.path.join(FLAGS.model_dir, 'hparams.json'), 'r') as f:

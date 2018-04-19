@@ -14,75 +14,43 @@ import json
 import encoder
 
 _NUM_SAMPLES = {
-  'train' : 500,
-  'test' : 98,
+  'train' : 550,
+  'test' : 50,
 }
 
 parser = argparse.ArgumentParser()
 
 # Basic model parameters.
 parser.add_argument('--mode', type=str, default='train',
-                    choices=['train', 'test', 'predict'],
-                    help='Train, eval or infer.')
-
-parser.add_argument('--data_dir', type=str, default='/tmp/cifar10_data',
-                    help='The path to the CIFAR-10 data directory.')
-
-parser.add_argument('--model_dir', type=str, default='/tmp/cifar10_model',
-                    help='The directory where the model will be stored.')
-
-parser.add_argument('--restore', action='store_true', default=False,
-                    help='Restore from a configuration params.')
-
-parser.add_argument('--num_layers', type=int, default=1,
-                    help='The number of nodes in a cell.')
-
-parser.add_argument('--hidden_size', type=int, default=32,
-                    help='The number of nodes in a cell.')
-
-parser.add_argument('--B', type=int, default=5,
-                    help='The number of non-input-nodes in a cell.')
-
-parser.add_argument('--length', type=int, default=60,
-                    help='The length of architecture description.')
-
-parser.add_argument('--input_keep_prob', type=float, default=1.0,
-                    help='.')
-
-parser.add_argument('--output_keep_prob', type=float, default=1.0,
-                    help='.')
-
-parser.add_argument('--weight_decay', type=float, default=1e-4,
-                    help='Weight decay.')
-
-parser.add_argument('--max_gradient_norm', type=float, default=5.0,
-                    help='Weight decay.')
-
-parser.add_argument('--vocab_size', type=int, default=26,
-                    help='Vocabulary size.')
-
-parser.add_argument('--train_epochs', type=int, default=300,
-                    help='The number of epochs to train.')
-
-parser.add_argument('--eval_frequency', type=int, default=10,
-                    help='The number of epochs to run in between evaluations.')
-
-parser.add_argument('--batch_size', type=int, default=128,
-                    help='The number of images per batch.')
-
+                    choices=['train', 'test', 'predict'],)
+parser.add_argument('--data_dir', type=str, default='/tmp/cifar10_data')
+parser.add_argument('--model_dir', type=str, default='/tmp/cifar10_model')
+parser.add_argument('--restore', action='store_true', default=False)
+parser.add_argument('--encoder_num_layers', type=int, default=1)
+parser.add_argument('--encoder_hidden_size', type=int, default=96)
+parser.add_argument('--encoder_emb_size', type=int, default=32)
+parser.add_argument('--mlp_num_layers', type=int, default=1)
+parser.add_argument('--mlp_hidden_size', type=int, default=32)
+parser.add_argument('--B', type=int, default=5)
+parser.add_argument('--length', type=int, default=60)
+parser.add_argument('--input_keep_prob', type=float, default=1.0)
+parser.add_argument('--output_keep_prob', type=float, default=1.0)
+parser.add_argument('--weight_decay', type=float, default=1e-4)
+parser.add_argument('--max_gradient_norm', type=float, default=5.0)
+parser.add_argument('--vocab_size', type=int, default=26)
+parser.add_argument('--train_epochs', type=int, default=300)
+parser.add_argument('--eval_frequency', type=int, default=10)
+parser.add_argument('--batch_size', type=int, default=128)
+parser.add_argument('--optimizer', type=float, default='adadelta')
 parser.add_argument('--lr_schedule', type=str, default='constant',
-                    choices=['constant', 'decay'],
-                    help='Learning rate schedule schema.')
-
-parser.add_argument('--lr', type=float, default=1.0,
-                    help='Learning rate when learning rate schedule is constant.')
-
+                    choices=['constant', 'decay'])
+parser.add_argument('--lr', type=float, default=1.0)
+parser.add_argument('--start_decay_step', type=int, default=100)
+parser.add_argument('--decay_steps', type=int, default=1000)
+parser.add_argument('--decay_factor', type=float, default=0.9)
 # Below are arguments for predicting
-parser.add_argument('--decode_from_file', type=str, default=None,
-                    help='File to decode from.')
-
-parser.add_argument('--decode_to_file', type=str, default=None,
-                    help='File to store predictions.')
+parser.add_argument('--decode_from_file', type=str, default=None)
+parser.add_argument('--decode_to_file', type=str, default=None)
 
 def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
   """Input_fn using the tf.data input pipeline for CIFAR-10 dataset.
@@ -167,79 +135,41 @@ def _del_dict_nones(d):
       del d[k]
 
 def model_fn(features, labels, mode, params):
-  inputs = features['inputs']
-  targets = features.get('targets', None)
-  res = encoder.encoder(inputs, params, mode == tf.estimator.ModeKeys.TRAIN)
-  predict_value = res['predict_value']
-  structure_emb = res['structure_emb']
-
-  tf.identity(predict_value, name='predict_value')  
-
-  predictions = {
-    'inputs' : inputs,
-    'targets' : targets,
-    'predict_value': predict_value,
-    'structure_emb':structure_emb,
-  }
-
-  _del_dict_nones(predictions)
-  
-  if mode == tf.estimator.ModeKeys.PREDICT:
-    return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
-
-  mean_squared_error = tf.losses.mean_squared_error(labels=labels, predictions=predict_value)
-  
-  tf.identity(mean_squared_error, name='squared_error')
-  tf.summary.scalar('mean_squared_error', mean_squared_error)
-  # Add weight decay to the loss.
-  loss = mean_squared_error + params['weight_decay'] * tf.add_n(
-      [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
-
-  if mode == tf.estimator.ModeKeys.EVAL:
-    #TODO: pearson
+  if mode == tf.estimator.ModeKeys.TRAIN:
+    inputs = features['inputs']
+    targets = features['targets']
+    model = encoder.Model(inputs, targets, params, mode, 'Encoder')
+    res = model.train()
+    train_op, loss = res['train_op'], res['loss']
+    return tf.estimator.EstimatorSpec(
+      mode=mode,
+      loss=loss,
+      train_op=train_op)
+  elif mode == tf.estimator.ModeKeys.EVAL:
+    inputs = features['inputs']
+    targets = labels
+    model = encoder.Model(inputs, targets, params, mode, 'Encoder')
+    res = model.eval()
+    loss = res['loss']
     squared_error = tf.metrics.mean_squared_error(labels, predict_value)
     metrics = {
       'squared_error': squared_error,}
-
     return tf.estimator.EstimatorSpec(
       mode=mode,
       loss=loss,
       eval_metric_ops=metrics)
-
-  assert mode == tf.estimator.ModeKeys.TRAIN
-
-  global_step = tf.train.get_or_create_global_step()
-
-  if params['lr_schedule'] == 'decay':
-    batches_per_epoch = _NUM_SAMPLES['train'] / params['batch_size']
-    boundaries = [int(batches_per_epoch * epoch) for epoch in [100, 500, 1000]]
-    values = [params['lr'] * decay for decay in [1, 0.1, 0.01, 0.001]]
-    learning_rate = tf.train.piecewise_constant(
-      tf.cast(global_step, tf.int32), boundaries, values)
-  else:
-    learning_rate = params['lr']
-
-  #_log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
-  # Create a tensor named learning_rate for logging purposes
-  tf.identity(learning_rate, name='learning_rate')
-  tf.summary.scalar('learning_rate', learning_rate)
- 
-  optimizer = tf.train.AdadeltaOptimizer(
-    learning_rate=learning_rate)
-
-  # Batch norm requires update ops to be added as a dependency to the train_op
-  update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-  with tf.control_dependencies(update_ops):
-    #train_op = optimizer.minimize(loss, global_step)
-    gradients, variables = zip(*optimizer.compute_gradients(loss))
-    gradients, _ = tf.clip_by_global_norm(gradients, params['max_gradient_norm'])
-    train_op = optimizer.apply_gradients(zip(gradients, variables), global_step)
-
-  return tf.estimator.EstimatorSpec(
-    mode=mode,
-    loss=loss,
-    train_op=train_op)
-
+  elif mode == tf.estimator.ModeKeys.PREDICT:
+    inputs = features['inputs']
+    model = encoder.Model(inputs, None, params, mode, 'Encoder')
+    res = model.infer()
+    arch_emb = res['arch_emb']
+    predict_value = res['predict_value']
+    predictions = {
+      'inputs' : inputs,
+      'predict_value': predict_value,
+      'arch_emb':arch_emb,
+    }
+    return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
 def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=None):
   def infer_input_fn():
@@ -260,7 +190,7 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
   result_iter = estimator.predict(infer_input_fn)
   for result in result_iter:
     predict_value = result['predict_value'].flatten()
-    emb = result['structure_emb'].flatten()
+    emb = result['arch_emb'].flatten()
     predict_value = ' '.join(map(str, predict_value))
     emb = ' '.join(list(map(str, emb)))
     tf.logging.info('Inference results OUTPUT: {}'.format(predict_value))
