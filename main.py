@@ -264,6 +264,20 @@ def get_params():
 
   return params 
 
+def pairwise_accuracy(la, lb):
+  N = len(la)
+  assert N == len(lb)
+  total = 0
+  count = 0
+  for i in range(N):
+    for j in range(i+1, N):
+      total += 1
+      if la[i] >= la[j] and lb[i] >= lb[j]:
+        count += 1
+      if la[i] < la[j] and lb[i] < lb[j]:
+        count += 1
+  return float(count) / total
+
 def main(unparsed):
   # Using the Winograd non-fused algorithms provides a small performance boost.
   os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
@@ -299,10 +313,24 @@ def main(unparsed):
           hooks=[logging_hook])
       
       # Evaluate the model and print results
+      
       eval_results = estimator.evaluate(
           input_fn=lambda: input_fn(params, 'test', params['data_dir'], _NUM_SAMPLES['test']))
       tf.logging.info('Evaluation on test data set')
-      print(eval_results)
+      print(eval_results) 
+      result_iter = estimator.predict(lambda: input_fn(params, 'test', params['data_dir'], _NUM_SAMPLES['test']))
+      predictions_list, targets_list = [], []
+      for i, result in enumerate(result_iter):
+        predict_value = result['predict_value'].flatten()#[0]
+        targets = result['ground_truth_value'].flatten()#[0]
+        predictions_list.extend(predict_value)
+        targets_list.extend(targets)
+      predictions_list = np.array(predictions_list)
+      targets_list = np.array(targets_list)
+      mse = ((predictions_list -  targets_list) ** 2).mean(axis=0)
+      pairwise_acc = pairwise_accuracy(targets_list, predictions_list)
+      tf.logging.info('test pairwise accuracy = {0}'.format(pairwise_acc))
+      tf.logging.info('test mean squared error = {0}'.format(mse))
 
   elif FLAGS.mode == 'test':
     if not os.path.exists(os.path.join(FLAGS.model_dir, 'hparams.json')):
