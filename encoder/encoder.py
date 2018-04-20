@@ -57,6 +57,7 @@ class Encoder(object):
         momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
         center=True, scale=True, training=is_training, fused=True
         )
+      x = tf.layers.dropout(x, 1 - self.output_keep_prob)
     self.predict_value = tf.layers.dense(x, 1, activation=tf.sigmoid, name='regression')
     return {
       'arch_emb' : self.arch_emb,
@@ -105,6 +106,7 @@ class Model(object):
 
   def compute_loss(self):
     mean_squared_error = tf.losses.mean_squared_error(labels=self.y, predictions=self.predict_value)
+    #mean_squared_error = tf.losses.huber_loss(labels=self.y, predictions=self.predict_value)
     tf.identity(mean_squared_error, name='squared_error')
     tf.summary.scalar('mean_squared_error', mean_squared_error)
     # Add weight decay to the loss.
