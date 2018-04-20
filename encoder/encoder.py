@@ -36,14 +36,18 @@ class Encoder(object):
         output_keep_prob=self.output_keep_prob)
       cell_list.append(lstm_cell)
     #initial_state = cell_list[0].zero_state(batch_size, dtype=tf.float32)
-    if len(cell_list) == 1:
-      cell = cell_list[0]
+    if len(cell_list) == 0:
+      self.encoder_output = x
+      self.encoder_state = x
     else:
-      cell = tf.contrib.rnn.MultiRNNCell(cell_list)
-    x, state = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)#initial_state=initial_state, dtype=tf.float32)
+      if len(cell_list) == 1:
+        cell = cell_list[0]
+      else:
+        cell = tf.contrib.rnn.MultiRNNCell(cell_list)
+      x, state = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)#initial_state=initial_state, dtype=tf.float32)
+      self.encoder_output = x
+      self.encoder_state = state
     
-    self.encoder_output = x
-    self.encoder_state = state
     x = tf.reduce_mean(x, axis=1)
     x = tf.nn.l2_normalize(x, dim=1)
 
