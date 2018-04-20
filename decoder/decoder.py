@@ -24,77 +24,79 @@ class Decoder():
     tgt_eos_id = tf.constant(0)
 
     self.batch_size = batch_size
- 
-    decoder_init_state = tf.concat([decoder_init_state, decoder_init_state], axis=-1)
-    cell, decoder_initial_state = self.build_decoder_cell(decoder_init_state)
 
-    if self.mode != tf.estimator.ModeKeys.PREDICT:
-      if self.time_major:
-        target_input = tf.transpose(target_input)
-      decoder_emb_inp = tf.nn.embedding_lookup(self.embedding_decoder, target_input)
-      #concat_inp_and_context = tf.concat([decoder_emb_inp, target_input], axis=0 if self.time_major else 1)
-      #Helper
-      helper = tf.contrib.seq2seq.TrainingHelper(
-        decoder_emb_inp, tf.tile([self.length], [self.batch_size]),
-        time_major=self.time_major)
+    with tf.variable_scope('decoder') as decoder_scope:
+      decoder_init_state = tf.concat([decoder_init_state, decoder_init_state], axis=-1)
+      cell, decoder_initial_state = self.build_decoder_cell(decoder_init_state)
 
-      #Decoder
-      my_decoder = tf.contrib.seq2seq.BasicDecoder(
-        cell,
-        helper,
-        decoder_initial_state)
+      if self.mode != tf.estimator.ModeKeys.PREDICT:
+        if self.time_major:
+          target_input = tf.transpose(target_input)
+        decoder_emb_inp = tf.nn.embedding_lookup(self.embedding_decoder, target_input)
+        #concat_inp_and_context = tf.concat([decoder_emb_inp, target_input], axis=0 if self.time_major else 1)
+        #Helper
+        helper = tf.contrib.seq2seq.TrainingHelper(
+          decoder_emb_inp, tf.tile([self.length], [self.batch_size]),
+          time_major=self.time_major)
 
-      #Dynamic decoding
-      outputs, final_context_state, _ = tf.contrib.seq2seq.dynamic_decode(
-        my_decoder,
-        output_time_major=self.time_major,
-        swap_memory=False)
-
-      sample_id = outputs.sample_id
-
-      logits = self.output_layer(outputs.rnn_output)
-
-    else:
-      beam_width = self.beam_width
-      start_tokens = tf.fill([self.batch_size], tgt_sos_id)
-      end_token = tgt_eos_id
-
-      if beam_width > 0:
-        my_decoder = tf.contrib.seq2seq.BeamSearchDecoder(
-            cell=cell,
-            embedding=self.embedding_decoder,
-            start_tokens=start_tokens,
-            end_token=end_token,
-            initial_state=decoder_initial_state,
-            beam_width=beam_width,
-            output_layer=self.output_layer)
-      else:
-        # Helper
-        helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-            self.embedding_decoder, start_tokens, end_token)
-
-        # Decoder
+        #Decoder
         my_decoder = tf.contrib.seq2seq.BasicDecoder(
-            cell,
-            helper,
-            decoder_initial_state,
-            output_layer=self.output_layer  # applied per timestep
-        )
+          cell,
+          helper,
+          decoder_initial_state)
 
-      # Dynamic decoding
-      outputs, final_context_state, _ = tf.contrib.seq2seq.dynamic_decode(
+        #Dynamic decoding
+        outputs, final_context_state, _ = tf.contrib.seq2seq.dynamic_decode(
           my_decoder,
-          maximum_iterations=self.length,
           output_time_major=self.time_major,
-          swap_memory=True,
+          swap_memory=False,
           scope=decoder_scope)
 
-      if beam_width > 0:
-        logits = tf.no_op()
-        sample_id = outputs.predicted_ids
-      else:
-        logits = outputs.rnn_output
         sample_id = outputs.sample_id
+
+        logits = self.output_layer(outputs.rnn_output)
+
+      else:
+        beam_width = self.beam_width
+        start_tokens = tf.fill([self.batch_size], tgt_sos_id)
+        end_token = tgt_eos_id
+
+        if beam_width > 0:
+          my_decoder = tf.contrib.seq2seq.BeamSearchDecoder(
+              cell=cell,
+              embedding=self.embedding_decoder,
+              start_tokens=start_tokens,
+              end_token=end_token,
+              initial_state=decoder_initial_state,
+              beam_width=beam_width,
+              output_layer=self.output_layer)
+        else:
+          # Helper
+          helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
+              self.embedding_decoder, start_tokens, end_token)
+
+          # Decoder
+          my_decoder = tf.contrib.seq2seq.BasicDecoder(
+              cell,
+              helper,
+              decoder_initial_state,
+              output_layer=self.output_layer  # applied per timestep
+          )
+
+        # Dynamic decoding
+        outputs, final_context_state, _ = tf.contrib.seq2seq.dynamic_decode(
+            my_decoder,
+            maximum_iterations=self.length,
+            output_time_major=self.time_major,
+            swap_memory=True,
+            scope=decoder_scope)
+
+        if beam_width > 0:
+          logits = tf.no_op()
+          sample_id = outputs.predicted_ids
+        else:
+          logits = outputs.rnn_output
+          sample_id = outputs.sample_id
 
     return logits, sample_id, final_context_state
 
@@ -161,7 +163,7 @@ class Model(object):
       # Embeddings
       self.W_emb = tf.get_variable('W_emb', [self.vocab_size, self.hidden_size])
       # Projection
-      with tf.variable_scope("output_projection"):
+      with tf.variable_scope("decoder/output_projection"):
         self.output_layer = layers_core.Dense(
             self.vocab_size, use_bias=False, name="output_projection")
       self.logits, self.sample_id, self.final_context_state = self.build_decoder()
@@ -247,7 +249,7 @@ class Model(object):
   def infer(self):
     assert self.mode == tf.estimator.ModeKeys.PREDICT
     return {
-      'logits' : self.infer_logits,
+      'logits' : self.logits,
       'sample_id' : self.sample_id,
     }
 

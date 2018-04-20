@@ -165,11 +165,6 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
     for res in results:
       f.write('%s\n' % (res))
 
-def _del_dict_nones(d):
-  for k in list(d.keys()):
-    if d[k] is None:
-      del d[k]
-
 
 def model_fn(features, labels, mode, params):
   if mode == tf.estimator.ModeKeys.TRAIN:
@@ -215,6 +210,7 @@ def model_fn(features, labels, mode, params):
     tf.identity(learning_rate, 'learning_rate')
     tf.summary.scalar("learning_rate", learning_rate),
     tf.summary.scalar("total_loss", total_loss),
+    #_log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
     return tf.estimator.EstimatorSpec(
       mode=mode,
       loss=total_loss,
@@ -231,6 +227,7 @@ def model_fn(features, labels, mode, params):
     decoder_loss = my_decoder.loss
     total_loss = params['trade_off'] * encoder_loss + (1 - params['trade_off']) * decoder_loss + params['weight_decay'] * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
+    _log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
     return tf.estimator.EstimatorSpec(
       mode=mode,
       loss=total_loss)
@@ -244,6 +241,7 @@ def model_fn(features, labels, mode, params):
     predict_value = res['predict_value']
     res = my_decoder.decode()
     sample_id = res['sample_id']
+    _log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
     predictions = {
       'arch' : decoder_target,
       'ground_truth_value' : encoder_target,
@@ -253,6 +251,32 @@ def model_fn(features, labels, mode, params):
     _del_dict_nones(predictions)
 
     return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
+
+
+def _log_variable_sizes(var_list, tag):
+  """Log the sizes and shapes of variables, and the total size.
+
+    Args:
+      var_list: a list of varaibles
+      tag: a string
+  """
+  name_to_var = {v.name: v for v in var_list}
+  total_size = 0
+  for v_name in sorted(list(name_to_var)):
+    v = name_to_var[v_name]
+    v_size = int(np.prod(np.array(v.shape.as_list())))
+    tf.logging.info("Weight    %s\tshape    %s\tsize    %d",
+      v.name[:-2].ljust(80),
+      str(v.shape).ljust(20), v_size)
+    total_size += v_size
+  tf.logging.info("%s Total size: %d", tag, total_size)
+
+
+def _del_dict_nones(d):
+  for k in list(d.keys()):
+    if d[k] is None:
+      del d[k]
+
 
 def get_params():
   params = vars(FLAGS)
@@ -287,7 +311,6 @@ def main(unparsed):
 
     #model_fn(tf.zeros([128,40,1], dtype=tf.int32),tf.zeros([128,1]),tf.estimator.ModeKeys.TRAIN, params)
 
-    #_log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
 
     with open(os.path.join(FLAGS.model_dir, 'hparams.json'), 'w') as f:
       json.dump(params, f)
