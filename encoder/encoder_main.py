@@ -169,6 +169,7 @@ def model_fn(features, labels, mode, params):
       'predict_value': predict_value,
       'arch_emb':arch_emb,
     }
+    _del_dict_nones(predictions)
     return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
 def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=None):
@@ -179,8 +180,6 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
     iterator = dataset.make_one_shot_iterator()
     inputs = iterator.get_next()
     assert inputs.shape.ndims == 2
-    while inputs.shape.ndims < 3:
-      inputs = tf.expand_dims(inputs, axis=-1)
 
     return {
       'inputs' : inputs, 
