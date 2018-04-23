@@ -15,8 +15,8 @@ import collections
 from tensorflow.python.ops import lookup_ops
 
 _NUM_SAMPLES = {
-  'train' : 500,
-  'test' : 100,
+  'train' : 550,
+  'test' : 50,
 }
 
 
@@ -33,9 +33,9 @@ parser.add_argument('--decoder_hidden_size', type=int, default=32)
 parser.add_argument('--B', type=int, default=5)
 parser.add_argument('--decode_length', type=int, default=60)
 parser.add_argument('--input_keep_prob', type=float, default=1.0)
-parser.add_argument('--output_keep_prob', type=float, default=1.0)
+parser.add_argument('--decoder_keep_prob', type=float, default=1.0)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
-parser.add_argument('--vocab_size', type=float, default=26)
+parser.add_argument('--decoder_vocab_size', type=float, default=26)
 parser.add_argument('--train_epochs', type=int, default=1000)
 parser.add_argument('--eval_frequency', type=int, default=10)
 parser.add_argument('--batch_size', type=int, default=128)
@@ -86,9 +86,9 @@ def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
     sos_id = tf.constant([SOS])
     eos_id = tf.constant([EOS])
     src = tf.string_split([src]).values
-    src = tf.string_to_number(src, out_type=tf.float32)[:params['hidden_size']]
+    src = tf.string_to_number(src, out_type=tf.float32)
     tgt = tf.string_split([tgt]).values
-    tgt = tf.string_to_number(tgt, out_type=tf.int32)[:params['length']]
+    tgt = tf.string_to_number(tgt, out_type=tf.int32)
     tgt_input = tf.concat([sos_id ,tgt[:-1]], axis=0)
     return (src, tgt_input, tgt)
 
@@ -177,7 +177,7 @@ def model_fn(features, labels, mode, params):
     inputs = features['inputs']
     targets_inputs = features['targets_inputs']
     targets = labels
-    model = decoder.Model(inputs, targets_inputs, targets, params, mode)
+    model = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder')
     res = model.eval()
     loss = res['loss']
     return tf.estimator.EstimatorSpec(
@@ -187,7 +187,7 @@ def model_fn(features, labels, mode, params):
     inputs = features['inputs']
     targets_inputs = features['targets_inputs']
     targets = features['targets']
-    model = decoder.Model(inputs, targets_inputs, targets, params, mode)
+    model = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder')
     res = model.decode()
     sample_id = res['sample_id']
     predictions = {
@@ -231,7 +231,7 @@ def main(unparsed):
     for _ in range(params['train_epochs'] // params['eval_frequency']):
       tensors_to_log = {
           'learning_rate': 'learning_rate',
-          'cross_entropy': 'cross_entropy',#'mean_squared_error'
+          'cross_entropy': 'Decoder/cross_entropy',#'mean_squared_error'
       }
 
       logging_hook = tf.train.LoggingTensorHook(

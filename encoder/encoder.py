@@ -16,9 +16,9 @@ class Encoder(object):
     self.mlp_num_layers = params['mlp_num_layers']
     self.mlp_hidden_size = params['mlp_hidden_size']
     self.length = params['length']
-    self.vocab_size = params['vocab_size']
+    self.vocab_size = params['encoder_vocab_size']
     self.input_keep_prob = params['input_keep_prob']
-    self.output_keep_prob = params['output_keep_prob']
+    self.output_keep_prob = params['encoder_keep_prob']
     self.W_emb = W_emb
     self.mode = mode
   def build_encoder(self, x, batch_size, is_training):
@@ -77,14 +77,14 @@ class Model(object):
     self.y = y
     self.params = params
     self.batch_size = tf.shape(x)[0]
-    self.vocab_size = params['vocab_size']
+    self.vocab_size = params['encoder_vocab_size']
     self.emb_size = params['encoder_emb_size']
     self.weight_decay = params['weight_decay']
     self.mode = mode
     self.is_training = self.mode == tf.estimator.ModeKeys.TRAIN
-    if self.is_training:
+    if not self.is_training:
       self.params['input_keep_prob'] = 1.0
-      self.params['output_keep_prob'] = 1.0
+      self.params['encoder_keep_prob'] = 1.0
 
     initializer = tf.orthogonal_initializer()
     tf.get_variable_scope().set_initializer(initializer)

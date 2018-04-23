@@ -38,9 +38,11 @@ parser.add_argument('--decoder_hidden_size', type=int, default=32)
 parser.add_argument('--length', type=int, default=60)
 parser.add_argument('--decode_length', type=int, default=60)
 parser.add_argument('--input_keep_prob', type=float, default=1.0)
-parser.add_argument('--output_keep_prob', type=float, default=1.0)
+parser.add_argument('--encoder_keep_prob', type=float, default=1.0)
+parser.add_argument('--decoder_keep_prob', type=float, default=1.0)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
-parser.add_argument('--vocab_size', type=int, default=26)
+parser.add_argument('--encoder_vocab_size', type=int, default=21)
+parser.add_argument('--decoder_vocab_size', type=int, default=26)
 parser.add_argument('--trade_off', type=float, default=0.5)
 parser.add_argument('--train_epochs', type=int, default=1000)
 parser.add_argument('--eval_frequency', type=int, default=10)
@@ -73,32 +75,34 @@ def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
   def get_filenames(mode, data_dir):
     """Returns a list of filenames."""
     if mode == 'train':
-      return [os.path.join(data_dir, 'train.input'), os.path.join(data_dir, 'train.target')]
+      return [os.path.join(data_dir, 'encoder.train.input'), os.path.join(data_dir, 'encoder.train.target'),
+              os.path.join(data_dir, 'decoder.train.target')]
     else:
-      return [os.path.join(data_dir, 'test.input'), os.path.join(data_dir, 'test.target')]
+      return [os.path.join(data_dir, 'encoder.test.input'), os.path.join(data_dir, 'encoder.test.target'),
+              os.path.join(data_dir, 'decoder.test.target')]
 
   files = get_filenames(mode, data_dir)
-  input_dataset = tf.data.TextLineDataset(files[0])
-  target_dataset = tf.data.TextLineDataset(files[1])
+  encoder_input_dataset = tf.data.TextLineDataset(files[0])
+  encoder_target_dataset = tf.data.TextLineDataset(files[1])
+  decoder_target_dataset = tf.data.TextLineDataset(files[2])
   
-  dataset = tf.data.Dataset.zip((input_dataset, target_dataset))
+  dataset = tf.data.Dataset.zip((encoder_input_dataset, encoder_target_dataset, decoder_target_dataset))
 
   is_training = mode == 'train'
 
   if is_training:
     dataset = dataset.shuffle(buffer_size=_NUM_SAMPLES['train'])
 
-  def decode_record(src, tgt): #src:sequence tgt:performance
+  def decode_record(encoder_src, encoder_tgt, decoder_tgt): #src:sequence tgt:performance
     sos_id = tf.constant([SOS])
     eos_id = tf.constant([EOS])
-    src = tf.string_split([src]).values
-    src = tf.string_to_number(src, out_type=tf.int32)
-    tgt = tf.string_to_number(tgt, out_type=tf.float32)
-    encoder_input = src
-    encoder_target = tgt
-    decoder_input = tf.concat([sos_id ,src[:-1]], axis=0)
-    decoder_target = src
-    return (encoder_input, encoder_target, decoder_input, decoder_target)
+    encoder_src = tf.string_split([encoder_src]).values
+    encoder_src = tf.string_to_number(encoder_src, out_type=tf.int32)
+    encoder_tgt = tf.string_to_number(encoder_tgt, out_type=tf.float32)
+    decoder_tgt = tf.string_split([decoder_tgt]).values
+    decoder_tgt = tf.string_to_number(decoder_tgt, out_type=tf.int32)
+    decoder_src = tf.concat([sos_id ,decoder_tgt[:-1]], axis=0)
+    return (encoder_src, encoder_tgt, decoder_src, decoder_tgt)
 
   dataset = dataset.map(decode_record)
   dataset = dataset.repeat(num_epochs)
@@ -134,7 +138,7 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
     dataset = tf.data.TextLineDataset(decode_from_file)
     def decode_record(record):
       src = tf.string_split([record]).values
-      src = tf.string_to_number(src, out_type=tf.float32)
+      src = tf.string_to_number(src, out_type=tf.int32)
       return src #, sos_id
     dataset = dataset.map(decode_record)
     dataset = dataset.batch(FLAGS.batch_size)
@@ -150,7 +154,7 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
   results = []
   result_iter = estimator.predict(infer_input_fn)
   for result in result_iter:
-    output = result['output'].flatten()
+    output = result['sample_id'].flatten()
     output = ' '.join(map(str, output))
     tf.logging.info('Inference results OUTPUT: %s' % output)
     results.append(output)
@@ -227,7 +231,7 @@ def model_fn(features, labels, mode, params):
     decoder_loss = my_decoder.loss
     total_loss = params['trade_off'] * encoder_loss + (1 - params['trade_off']) * decoder_loss + params['weight_decay'] * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
-    _log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
+    #_log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
     return tf.estimator.EstimatorSpec(
       mode=mode,
       loss=total_loss)
@@ -241,7 +245,7 @@ def model_fn(features, labels, mode, params):
     predict_value = res['predict_value']
     res = my_decoder.decode()
     sample_id = res['sample_id']
-    _log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
+    #_log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
     predictions = {
       'arch' : decoder_target,
       'ground_truth_value' : encoder_target,

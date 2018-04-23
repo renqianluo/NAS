@@ -10,9 +10,9 @@ class Decoder():
     self.num_layers = params['decoder_num_layers']
     self.hidden_size = params['decoder_hidden_size']
     self.length = params['decode_length']
-    self.vocab_size = params['vocab_size']
+    self.vocab_size = params['decoder_vocab_size']
     self.input_keep_prob = params['input_keep_prob']
-    self.output_keep_prob = params['output_keep_prob']
+    self.output_keep_prob = params['decoder_keep_prob']
     self.embedding_decoder = embedding_decoder
     self.output_layer = output_layer
     self.time_major = params['time_major']
@@ -27,6 +27,7 @@ class Decoder():
 
     with tf.variable_scope('decoder') as decoder_scope:
       decoder_init_state = tf.concat([decoder_init_state, decoder_init_state], axis=-1)
+      #decoder_init_state = tf.concat([decoder_init_state, tf.zeros_like(decoder_init_state)], axis=-1)
       cell, decoder_initial_state = self.build_decoder_cell(decoder_init_state)
 
       if self.mode != tf.estimator.ModeKeys.PREDICT:
@@ -139,15 +140,15 @@ class Model(object):
     self.target_input = target_input
     self.target = target
     self.mode = mode
-    self.vocab_size = params['vocab_size']
+    self.vocab_size = params['decoder_vocab_size']
     self.num_layers = params['decoder_num_layers']
     self.time_major = params['time_major']
     self.hidden_size = params['decoder_hidden_size']
     self.weight_decay = params['weight_decay']
     self.is_traing = mode == tf.estimator.ModeKeys.TRAIN
-    if self.is_traing:
+    if not self.is_traing:
       self.params['input_keep_prob'] = 1.0
-      self.params['output_keep_prob'] = 1.0
+      self.params['decoder_keep_prob'] = 1.0
 
     # Initializer
     initializer = tf.orthogonal_initializer()
@@ -201,7 +202,7 @@ class Model(object):
   def train(self):
     assert self.mode == tf.estimator.ModeKeys.TRAIN
     self.global_step = tf.train.get_or_create_global_step()
-    self.learning_rate = tf.constant(params['lr'])
+    self.learning_rate = tf.constant(self.params['lr'])
     # Gradients and SGD update operation for training the model.
     # Arrage for the embedding vars to appear at the beginning.
     if self.params['optimizer'] == "sgd":
