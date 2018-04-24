@@ -16,19 +16,18 @@ class Decoder():
     self.embedding_decoder = embedding_decoder
     self.output_layer = output_layer
     self.time_major = params['time_major']
-    self.beam_width = params.get('beam_width', 1)
+    self.beam_width = params['beam_width']
     self.mode = mode
 
-  def build_decoder(self, decoder_init_state, target_input, batch_size):
+  def build_decoder(self, encoder_state, target_input, batch_size):
     tgt_sos_id = tf.constant(0)
     tgt_eos_id = tf.constant(0)
 
     self.batch_size = batch_size
 
     with tf.variable_scope('decoder') as decoder_scope:
-      decoder_init_state = tf.concat([decoder_init_state, decoder_init_state], axis=-1)
-      #decoder_init_state = tf.concat([decoder_init_state, tf.zeros_like(decoder_init_state)], axis=-1)
-      cell, decoder_initial_state = self.build_decoder_cell(decoder_init_state)
+      #decoder_init_state = tf.concat([decoder_init_state, decoder_init_state], axis=-1)
+      cell, decoder_initial_state = self.build_decoder_cell(encoder_state)
 
       if self.mode != tf.estimator.ModeKeys.PREDICT:
         if self.time_major:
@@ -102,7 +101,7 @@ class Decoder():
     return logits, sample_id, final_context_state
 
 
-  def build_decoder_cell(self, decoder_init_state):
+  def build_decoder_cell(self, encoder_state):
     cell_list = []
     for i in range(self.num_layers):
       lstm_cell = tf.contrib.rnn.LSTMCell(
@@ -117,13 +116,15 @@ class Decoder():
       cell = cell_list[0]
     else:
       cell = tf.contrib.rnn.MultiRNNCell(cell_list)
-      decoder_init_state = (decoder_init_state,) * self.num_layers
+      #decoder_init_state = (encoder_state,) * self.num_layers
     # For beam search, we need to replicate encoder infos beam_width times
     if self.mode == tf.estimator.ModeKeys.PREDICT and self.beam_width > 0:
-      decoder_init_state = tf.contrib.seq2seq.tile_batch(
-          decoder_init_state, multiplier=self.beam_width)
+      decoder_initial_state = tf.contrib.seq2seq.tile_batch(
+          encoder_state, multiplier=self.beam_width)
+    else:
+      decoder_initial_state = encoder_state
 
-    return cell, decoder_init_state
+    return cell, decoder_initial_state
 
 class Model(object):
   def __init__(self,

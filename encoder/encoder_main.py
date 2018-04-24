@@ -168,6 +168,7 @@ def model_fn(features, labels, mode, params):
       'targets' : targets,
       'predict_value': predict_value,
       'arch_emb':arch_emb,
+      'hidden' : model.encoder_state.h, 
     }
     _del_dict_nones(predictions)
     return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
@@ -185,31 +186,38 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
       'inputs' : inputs, 
     }, None
   
-  scores, embs = [], []
+  scores, embs, hiddens = [], [], []
   result_iter = estimator.predict(infer_input_fn)
   for result in result_iter:
     predict_value = result['predict_value'].flatten()
     emb = result['arch_emb'].flatten()
+    hidden = result['hidden'].flatten()
     predict_value = ' '.join(map(str, predict_value))
     emb = ' '.join(list(map(str, emb)))
+    hidden = ' '.join(list(map(str, hidden)))
     tf.logging.info('Inference results OUTPUT: {}'.format(predict_value))
     scores.append(predict_value)
-    embs.append(emb)
+    hiddens.append(hidden)
 
   if decode_to_file:
     score_output_filename = '{}.score'.format(decode_to_file)
     emb_output_filename = '{}.emb'.format(decode_to_file)
+    hidden_output_filename = '{}.hid'.format(decode_to_file)
   else:
     score_output_filename = '{}.score'.format(decode_from_file)
     emb_output_filename = '{}.emb'.format(decode_from_file)
+    hidden_output_filename = '{}.hid'.format(decode_from_file)
 
-  tf.logging.info('Writing results into {0} and {1}'.format(score_output_filename, emb_output_filename))
+  tf.logging.info('Writing results into {0}, {1} and {2}'.format(score_output_filename, emb_output_filename, hidden_output_filename))
   with tf.gfile.Open(score_output_filename, 'w') as f:
     for score in scores:
       f.write('{}\n'.format(score))
   with open(emb_output_filename, 'w') as f:
     for emb in embs:
       f.write('{}\n'.format(emb))
+  with open(hidden_output_filename, 'w') as f:
+    for hidden in hiddens:
+      f.write('{}\n'.format(hidden))
 
 def get_params():
   params = vars(FLAGS)

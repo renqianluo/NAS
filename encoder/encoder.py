@@ -25,7 +25,7 @@ class Encoder(object):
     self.batch_size = batch_size
     assert x.shape.ndims == 2, '[batch_size, length]'
     x = tf.gather(self.W_emb, x)
-    x = tf.reshape(x, [batch_size, self.length//3, 3*self.emb_size])
+    #x = tf.reshape(x, [batch_size, self.length//3, 3*self.emb_size])
     #x = x[:,:,0:self.emb_size] + x[:,:,self.emb_size:2*self.emb_size] + x[:,:,2*self.emb_size:3*self.emb_size]
     cell_list = []
     for i in range(self.num_layers):

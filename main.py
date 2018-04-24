@@ -53,6 +53,7 @@ parser.add_argument('--start_decay_step', type=int, default=100)
 parser.add_argument('--decay_steps', type=int, default=1000)
 parser.add_argument('--decay_factor', type=float, default=0.9)
 parser.add_argument('--max_gradient_norm', type=float, default=5.0)
+parser.add_argument('--beam_width', type=int, default=1)
 parser.add_argument('--time_major', action='store_true', default=False)
 parser.add_argument('--decode_from_file', type=str, default=None)
 parser.add_argument('--decode_to_file', type=str, default=None)
@@ -177,7 +178,11 @@ def model_fn(features, labels, mode, params):
     decoder_input = features['decoder_input']
     decoder_target = features['decoder_target']
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
-    my_decoder = decoder.Model(my_encoder.arch_emb, decoder_input, decoder_target, params, mode, 'Decoder')
+    if params['encoder_num_layers'] == 1:
+      encoder_state = tf.concat(my_encoder.encoder_state, axis=-1)
+    else:
+      encoder_state = tuple([tf.concat(i, axis=-1) for i in my_encoder.encoder_state])
+    my_decoder = decoder.Model(encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
     
@@ -226,7 +231,11 @@ def model_fn(features, labels, mode, params):
     decoder_input = features['decoder_input']
     decoder_target = features['decoder_target']
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
-    my_decoder = decoder.Model(my_encoder.arch_emb, decoder_input, decoder_target, params, mode, 'Decoder')
+    if params['encoder_num_layers'] == 1:
+      encoder_state = tf.concat(my_encoder.encoder_state, axis=-1)
+    else:
+      encoder_state = tuple([tf.concat(i,axis=-1) for i in my_encoder.encoder_state])
+    my_decoder = decoder.Model(encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
     total_loss = params['trade_off'] * encoder_loss + (1 - params['trade_off']) * decoder_loss + params['weight_decay'] * tf.add_n(
@@ -240,7 +249,11 @@ def model_fn(features, labels, mode, params):
     encoder_target = features.get('encoder_target', None)
     decoder_target = features.get('encoder_target', None)
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
-    my_decoder = decoder.Model(my_encoder.arch_emb, None, None, params, mode, 'Decoder')
+    if params['encoder_num_layers'] == 1:
+      encoder_state = tf.concat(my_encoder.encoder_state, axis=-1)
+    else:
+      encoder_state = tuple([tf.concat(i,axis=-1) for i in my_encoder.encoder_state])
+    my_decoder = decoder.Model(encoder_state, None, None, params, mode, 'Decoder')
     res = my_encoder.infer()
     predict_value = res['predict_value']
     res = my_decoder.decode()

@@ -89,8 +89,12 @@ def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
     src = tf.string_to_number(src, out_type=tf.float32)
     tgt = tf.string_split([tgt]).values
     tgt = tf.string_to_number(tgt, out_type=tf.int32)
-    tgt_input = tf.concat([sos_id ,tgt[:-1]], axis=0)
-    return (src, tgt_input, tgt)
+    tgt_1 = tgt[:30]
+    tgt_2 = tgt[30:]
+    #tgt_input = tf.concat([sos_id ,tgt[:-1]], axis=0)
+    tgt_1_input = tf.concat([sos_id ,tgt_1[:-1]], axis=0)
+    tgt_2_input = tf.concat([sos_id ,tgt_2[:-1]], axis=0)
+    return (src, tgt_1_input, tgt_1, tgt_2_input, tgt_2)
 
   dataset = dataset.map(decode_record)
   dataset = dataset.repeat(num_epochs)
@@ -98,16 +102,18 @@ def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
   iterator = dataset.make_one_shot_iterator()
   batched_examples = iterator.get_next()
 
-  inputs, targets_inputs, targets = batched_examples
+  inputs, targets_1_inputs, targets_1, targets_2_inputs, targets_2 = batched_examples
 
   assert inputs.shape.ndims == 2
-  assert targets_inputs.shape.ndims == 2
-  assert targets.shape.ndims == 2
+  #assert targets_inputs.shape.ndims == 2
+  #assert targets.shape.ndims == 2
   
   return {
     "inputs" : inputs,
-    "targets_inputs" : targets_inputs,
-    "targets" : targets}, targets
+    "targets_1_inputs" : targets_1_inputs,
+    "targets_1" : targets_1,
+    "targets_2_inputs" : targets_2_inputs,
+    "targets_2" : targets_2}, targets_1
 
 def create_vocab_tables(vocab_file):
   """Creates vocab tables for src_vocab_file and tgt_vocab_file."""
@@ -163,33 +169,88 @@ def _del_dict_nones(d):
 def model_fn(features, labels, mode, params):
   if mode == tf.estimator.ModeKeys.TRAIN:
     inputs = features['inputs']
-    targets_inputs = features['targets_inputs']
-    targets = labels
-    model = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder')
-    res = model.train()
-    train_op = res['train_op']
-    loss = res['loss']
+    targets_1_inputs = features['targets_1_inputs']
+    targets_1 = features['targets_1']
+    targets_2_inputs = features['targets_2_inputs']
+    targets_2 = features['targets_2']
+    model1 = decoder.Model(inputs, targets_1_inputs, targets_1, params, mode, 'Decoder_1')
+    model2 = decoder.Model(inputs, targets_2_inputs, targets_2, params, mode, 'Decoder_2')
+    loss1 = model1.loss
+    loss2 = model2.loss
+    total_loss = loss1 + loss2 + params['weight_decay'] * tf.add_n(
+      [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
+    global_step = tf.train.get_or_create_global_step()
+    learning_rate = tf.constant(params['lr'])
+    if params['optimizer'] == "sgd":
+      learning_rate = tf.cond(
+          global_step < params['start_decay_step'],
+          lambda: learning_rate,
+          lambda: tf.train.exponential_decay(
+              learning_rate,
+              (global_step - params['start_decay_step']),
+              params['decay_steps'],
+              params['decay_factor'],
+              staircase=True),
+          name="learning_rate")
+      opt = tf.train.GradientDescentOptimizer(learning_rate)
+    elif params['optimizer'] == "adam":
+      assert float(
+          params['lr']
+      ) <= 0.001, "! High Adam learning rate %g" % params['lr']
+      opt = tf.train.AdamOptimizer(learning_rate)
+    elif params['optimizer'] == 'adadelta':
+      opt = tf.train.AdadeltaOptimizer(learning_rate=learning_rate)
+
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    with tf.control_dependencies(update_ops):
+      gradients, variables = zip(*opt.compute_gradients(total_loss))
+      clipped_gradients, _ = tf.clip_by_global_norm(gradients, params['max_gradient_norm'])
+      train_op = opt.apply_gradients(
+        zip(clipped_gradients, variables), global_step=global_step)
+
+
+    tf.identity(learning_rate, 'learning_rate')
+    tf.summary.scalar("learning_rate", learning_rate),
+    tf.summary.scalar("train_loss", total_loss),
+
+
+    #res = model.train()
+    #train_op = res['train_op']
+    #loss = res['loss']
     return tf.estimator.EstimatorSpec(
       mode=mode,
-      loss=loss,
+      loss=total_loss,
       train_op=train_op)
   elif mode == tf.estimator.ModeKeys.EVAL:
     inputs = features['inputs']
-    targets_inputs = features['targets_inputs']
-    targets = labels
-    model = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder')
-    res = model.eval()
-    loss = res['loss']
+    targets_1_inputs = features['targets_1_inputs']
+    targets_1 = features['targets_1']
+    targets_2_inputs = features['targets_2_inputs']
+    targets_2 = features['targets_2']
+    model1 = decoder.Model(inputs, targets_1_inputs, targets_1, params, mode, 'Decoder_1')
+    model2 = decoder.Model(inputs, targets_2_inputs, targets_2, params, mode, 'Decoder_2')
+    #targets_inputs = features['targets_inputs']
+    #targets = labels
+    #model = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder')
+    #res = model.eval()
+    #loss = res['loss']
+
+    loss1 = model1.loss
+    loss2 = model2.loss
+    total_loss = loss1 + loss2 + params['weight_decay'] * tf.add_n(
+      [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
     return tf.estimator.EstimatorSpec(
       mode=mode,
-      loss=loss)
+      loss=total_loss)
   elif mode == tf.estimator.ModeKeys.PREDICT:
     inputs = features['inputs']
     targets_inputs = features['targets_inputs']
     targets = features['targets']
-    model = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder')
-    res = model.decode()
-    sample_id = res['sample_id']
+    model1 = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder_1')
+    model2 = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder_2')
+    res1 = model1.decode()
+    res2 = model2.decode()
+    sample_id = tf.concat([res1['sample_id'],res2['sample_id']],axis=1)
     predictions = {
       #'inputs' : inputs,
       #'targets' : targets,
@@ -231,7 +292,8 @@ def main(unparsed):
     for _ in range(params['train_epochs'] // params['eval_frequency']):
       tensors_to_log = {
           'learning_rate': 'learning_rate',
-          'cross_entropy': 'Decoder/cross_entropy',#'mean_squared_error'
+          'cross_entropy_1': 'Decoder_1/cross_entropy',#'mean_squared_error'
+          'cross_entropy_2': 'Decoder_2/cross_entropy',#'mean_squared_error'
       }
 
       logging_hook = tf.train.LoggingTensorHook(
