@@ -140,15 +140,11 @@ class Decoder():
       cell = tf.contrib.seq2seq.AttentionWrapper(
         cell,
         attention_mechanism,
-        attention_layer_size=num_units,
+        attention_layer_size=self.num_units,
         alignment_history=alignment_history,
         name='attention')
 
-    if self.pass_hidden_state:
-      decoder_initial_state = cell.zero_state(batch_size, tf.float32).clone(
-        cell_state=encoder_state)
-    else:
-      decoder_initial_state = cell.zero_state(batch_size, tf.float32)
+    decoder_initial_state = encoder_state
 
     return cell, decoder_initial_state
 

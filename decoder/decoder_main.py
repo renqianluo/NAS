@@ -45,7 +45,7 @@ parser.add_argument('--start_decay_step', type=int, default=100)
 parser.add_argument('--decay_steps', type=int, default=1000)
 parser.add_argument('--decay_factor', type=float, default=0.9)
 parser.add_argument('--max_gradient_norm', type=float, default=5.0)
-parser.add_argument('--attn', action='store_true', default=False)
+parser.add_argument('--attention', action='store_true', default=False)
 parser.add_argument('--time_major', action='store_true', default=False)
 #
 parser.add_argument('--predict_from_file', type=str, default=None)
