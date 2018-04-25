@@ -17,15 +17,14 @@ class Encoder(object):
     self.mlp_hidden_size = params['mlp_hidden_size']
     self.length = params['length']
     self.vocab_size = params['encoder_vocab_size']
-    self.input_keep_prob = params['input_keep_prob']
-    self.output_keep_prob = params['encoder_keep_prob']
+    self.dropout = params['encoder_dropout']
     self.W_emb = W_emb
     self.mode = mode
   def build_encoder(self, x, batch_size, is_training):
     self.batch_size = batch_size
     assert x.shape.ndims == 2, '[batch_size, length]'
     x = tf.gather(self.W_emb, x)
-    #x = tf.reshape(x, [batch_size, self.length//3, 3*self.emb_size])
+    x = tf.reshape(x, [batch_size, self.length//3, 3*self.emb_size])
     #x = x[:,:,0:self.emb_size] + x[:,:,self.emb_size:2*self.emb_size] + x[:,:,2*self.emb_size:3*self.emb_size]
     cell_list = []
     for i in range(self.num_layers):
@@ -33,8 +32,7 @@ class Encoder(object):
         self.hidden_size)
       lstm_cell = tf.contrib.rnn.DropoutWrapper(
         lstm_cell, 
-        input_keep_prob=self.input_keep_prob, 
-        output_keep_prob=self.output_keep_prob)
+        output_keep_prob=1-self.dropout)
       cell_list.append(lstm_cell)
     #initial_state = cell_list[0].zero_state(batch_size, dtype=tf.float32)
     if len(cell_list) == 0:
@@ -62,7 +60,7 @@ class Encoder(object):
         momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
         center=True, scale=True, training=is_training, fused=True
         )
-      x = tf.layers.dropout(x, 1 - self.output_keep_prob)
+      x = tf.layers.dropout(x, 0.5)
     self.predict_value = tf.layers.dense(x, 1, activation=tf.sigmoid, name='regression')
     return {
       'arch_emb' : self.arch_emb,
@@ -73,7 +71,7 @@ class Encoder(object):
 
 
 class Model(object):
-  def __init__(self, x, y, params, mode, scope=None):
+  def __init__(self, x, y, params, mode, scope='Encoder'):
     self.x = x
     self.y = y
     self.params = params
@@ -84,8 +82,7 @@ class Model(object):
     self.mode = mode
     self.is_training = self.mode == tf.estimator.ModeKeys.TRAIN
     if not self.is_training:
-      self.params['input_keep_prob'] = 1.0
-      self.params['encoder_keep_prob'] = 1.0
+      self.params['encoder_dropout'] = 0.0
 
     initializer = tf.orthogonal_initializer()
     tf.get_variable_scope().set_initializer(initializer)
@@ -169,7 +166,15 @@ class Model(object):
 
   def infer(self):
     assert self.mode == tf.estimator.ModeKeys.PREDICT
+    tf.get_variable_scope().reuse_variables()
+    w = tf.get_variable('Encoder/regression/kernel')
+    b = tf.get_variable('Encoder/regression/bias')
+    grad_on_arch_emb = tf.sigmoid(tf.matmul(self.arch_emb,w)+b) * \
+      (1 - tf.sigmoid(tf.matmul(self.arch_emb, w+b))) * \
+      tf.transpose(w,[1,0])
+    new_arch_emb = self.arch_emb + self.params['predict_lambda'] * grad_on_arch_emb
     return {
+      'new_arch_emb' : new_arch_emb,
       'arch_emb' : self.arch_emb,
       'predict_value' : self.predict_value,
     }

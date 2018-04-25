@@ -15,7 +15,7 @@ import collections
 from tensorflow.python.ops import lookup_ops
 
 _NUM_SAMPLES = {
-  'train' : 550,
+  'train' : 600,
   'test' : 50,
 }
 
@@ -32,8 +32,7 @@ parser.add_argument('--decoder_num_layers', type=int, default=1)
 parser.add_argument('--decoder_hidden_size', type=int, default=32)
 parser.add_argument('--B', type=int, default=5)
 parser.add_argument('--decode_length', type=int, default=60)
-parser.add_argument('--input_keep_prob', type=float, default=1.0)
-parser.add_argument('--decoder_keep_prob', type=float, default=1.0)
+parser.add_argument('--decoder_dropout', type=float, default=0.0)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
 parser.add_argument('--decoder_vocab_size', type=float, default=26)
 parser.add_argument('--train_epochs', type=int, default=1000)
@@ -46,8 +45,10 @@ parser.add_argument('--decay_steps', type=int, default=1000)
 parser.add_argument('--decay_factor', type=float, default=0.9)
 parser.add_argument('--max_gradient_norm', type=float, default=5.0)
 parser.add_argument('--time_major', action='store_true', default=False)
-parser.add_argument('--decode_from_file', type=str, default=None)
-parser.add_argument('--decode_to_file', type=str, default=None)
+#
+parser.add_argument('--predict_from_file', type=str, default=None)
+parser.add_argument('--predict_to_file', type=str, default=None)
+parser.add_argument('--beam_width', type=int, default=0)
 
 SOS=0
 EOS=0
@@ -173,6 +174,9 @@ def model_fn(features, labels, mode, params):
     targets_1 = features['targets_1']
     targets_2_inputs = features['targets_2_inputs']
     targets_2 = features['targets_2']
+    inputs.set_shape([None, params['decoder_hidden_size']])
+    inputs = tf.contrib.rnn.LSTMStateTuple(inputs, inputs)
+    inputs = (inputs,) * params['decoder_num_layers']
     model1 = decoder.Model(inputs, targets_1_inputs, targets_1, params, mode, 'Decoder_1')
     model2 = decoder.Model(inputs, targets_2_inputs, targets_2, params, mode, 'Decoder_2')
     loss1 = model1.loss
@@ -227,6 +231,9 @@ def model_fn(features, labels, mode, params):
     targets_1 = features['targets_1']
     targets_2_inputs = features['targets_2_inputs']
     targets_2 = features['targets_2']
+    inputs.set_shape([None, params['decoder_hidden_size']])
+    inputs = tf.contrib.rnn.LSTMStateTuple(inputs, inputs)
+    inputs = (inputs,) * params['decoder_num_layers']
     model1 = decoder.Model(inputs, targets_1_inputs, targets_1, params, mode, 'Decoder_1')
     model2 = decoder.Model(inputs, targets_2_inputs, targets_2, params, mode, 'Decoder_2')
     #targets_inputs = features['targets_inputs']
@@ -246,6 +253,9 @@ def model_fn(features, labels, mode, params):
     inputs = features['inputs']
     targets_inputs = features['targets_inputs']
     targets = features['targets']
+    inputs.set_shape([None, params['decoder_hidden_size']])
+    inputs = tf.contrib.rnn.LSTMStateTuple(inputs, inputs)
+    inputs = (inputs,) * params['decoder_num_layers']
     model1 = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder_1')
     model2 = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder_2')
     res1 = model1.decode()
@@ -326,13 +336,16 @@ def main(unparsed):
   elif FLAGS.mode == 'predict':
     if not os.path.exists(os.path.join(FLAGS.model_dir, 'hparams.json')):
       raise ValueError('No hparams.json found in {0}'.format(FLAGS.model_dir))
+    params = vars(FLAGS)
     with open(os.path.join(FLAGS.model_dir, 'hparams.json'), 'r') as f:
-      params = json.load(f)
-
+      old_params = json.load(f)
+      for k,v in old_params.items():
+        if not k.startswith('predict'):
+          params[k] = v
     estimator = tf.estimator.Estimator(
       model_fn=model_fn, model_dir=FLAGS.model_dir, params=params)
     
-    predict_from_file(estimator, FLAGS.batch_size, FLAGS.decode_from_file, FLAGS.decode_to_file)
+    predict_from_file(estimator, FLAGS.batch_size, FLAGS.predict_from_file, FLAGS.predict_to_file)
 
 
 if __name__ == '__main__':

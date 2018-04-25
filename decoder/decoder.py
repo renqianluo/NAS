@@ -11,8 +11,7 @@ class Decoder():
     self.hidden_size = params['decoder_hidden_size']
     self.length = params['decode_length']
     self.vocab_size = params['decoder_vocab_size']
-    self.input_keep_prob = params['input_keep_prob']
-    self.output_keep_prob = params['decoder_keep_prob']
+    self.dropout = params['decoder_dropout']
     self.embedding_decoder = embedding_decoder
     self.output_layer = output_layer
     self.time_major = params['time_major']
@@ -106,17 +105,15 @@ class Decoder():
     for i in range(self.num_layers):
       lstm_cell = tf.contrib.rnn.LSTMCell(
         self.hidden_size,
-        state_is_tuple=False)
+        state_is_tuple=True)
       lstm_cell = tf.contrib.rnn.DropoutWrapper(
         lstm_cell, 
-        input_keep_prob=self.input_keep_prob, 
-        output_keep_prob=self.output_keep_prob)
+        output_keep_prob=1-self.dropout)
       cell_list.append(lstm_cell)
     if len(cell_list) == 1:
       cell = cell_list[0]
     else:
       cell = tf.contrib.rnn.MultiRNNCell(cell_list)
-      #decoder_init_state = (encoder_state,) * self.num_layers
     # For beam search, we need to replicate encoder infos beam_width times
     if self.mode == tf.estimator.ModeKeys.PREDICT and self.beam_width > 0:
       decoder_initial_state = tf.contrib.seq2seq.tile_batch(
@@ -148,8 +145,7 @@ class Model(object):
     self.weight_decay = params['weight_decay']
     self.is_traing = mode == tf.estimator.ModeKeys.TRAIN
     if not self.is_traing:
-      self.params['input_keep_prob'] = 1.0
-      self.params['decoder_keep_prob'] = 1.0
+      self.params['decoder_dropout'] = 0.0
 
     # Initializer
     initializer = tf.orthogonal_initializer()
@@ -260,7 +256,10 @@ class Model(object):
     sample_id = res['sample_id']
     # make sure outputs is of shape [batch_size, time, 1]
     if self.time_major:
-      sample_id = tf.transpose(sample_id, [1,0,2])
+      try:
+        sample_id = tf.transpose(sample_id, [1,0])
+      except:
+        sample_id = tf.transpose(sample_id, [1,0,2])
     return {
       'sample_id' : sample_id
     }
