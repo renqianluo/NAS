@@ -32,7 +32,8 @@ parser.add_argument('--encoder_emb_size', type=int, default=32)
 parser.add_argument('--mlp_num_layers', type=int, default=1)
 parser.add_argument('--mlp_hidden_size', type=int, default=32)
 parser.add_argument('--B', type=int, default=5)
-parser.add_argument('--length', type=int, default=60)
+parser.add_argument('--source_length', type=int, default=60) #source input
+parser.add_argument('--encoder_length', type=int, default=60) #length of encoder`s output 
 parser.add_argument('--encoder_dropout', type=float, default=0.0)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
 parser.add_argument('--max_gradient_norm', type=float, default=5.0)

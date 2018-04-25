@@ -9,8 +9,8 @@ class Decoder():
   def __init__(self, params, mode, embedding_decoder, output_layer):
     self.num_layers = params['decoder_num_layers']
     self.hidden_size = params['decoder_hidden_size']
-    self.length = params['decode_length']
-    self.source_length = params['source_length']
+    self.length = params['decoder_length']
+    self.source_length = params['encoder_length']
     self.vocab_size = params['decoder_vocab_size']
     self.dropout = params['decoder_dropout']
     self.embedding_decoder = embedding_decoder

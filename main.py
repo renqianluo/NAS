@@ -35,8 +35,9 @@ parser.add_argument('--mlp_num_layers', type=int, default=1)
 parser.add_argument('--mlp_hidden_size', type=int, default=32)
 parser.add_argument('--decoder_num_layers', type=int, default=1)
 parser.add_argument('--decoder_hidden_size', type=int, default=32)
-parser.add_argument('--length', type=int, default=60)
-parser.add_argument('--decode_length', type=int, default=60)
+parser.add_argument('--source_length', type=int, default=60)
+parser.add_argument('--encoder_length', type=int, default=60)
+parser.add_argument('--decoder_length', type=int, default=60)
 parser.add_argument('--input_keep_prob', type=float, default=1.0)
 parser.add_argument('--encoder_keep_prob', type=float, default=1.0)
 parser.add_argument('--decoder_keep_prob', type=float, default=1.0)
@@ -52,6 +53,7 @@ parser.add_argument('--optimizer', type=str, default='adam')
 parser.add_argument('--start_decay_step', type=int, default=100)
 parser.add_argument('--decay_steps', type=int, default=1000)
 parser.add_argument('--decay_factor', type=float, default=0.9)
+parser.add_argument('--attn', action='store_true', default=False)
 parser.add_argument('--max_gradient_norm', type=float, default=5.0)
 parser.add_argument('--beam_width', type=int, default=0)
 parser.add_argument('--time_major', action='store_true', default=False)
@@ -178,11 +180,9 @@ def model_fn(features, labels, mode, params):
     decoder_input = features['decoder_input']
     decoder_target = features['decoder_target']
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
-    if params['encoder_num_layers'] == 1:
-      encoder_state = tf.concat(my_encoder.encoder_state, axis=-1)
-    else:
-      encoder_state = tuple([tf.concat(i, axis=-1) for i in my_encoder.encoder_state])
-    my_decoder = decoder.Model(encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
+    encoder_outputs = my_encoder.encoder_outputs
+    encoder_state = my_encoder.encoder_state
+    my_decoder = decoder.Model(encoder_outputs, encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
     
@@ -231,11 +231,9 @@ def model_fn(features, labels, mode, params):
     decoder_input = features['decoder_input']
     decoder_target = features['decoder_target']
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
-    if params['encoder_num_layers'] == 1:
-      encoder_state = tf.concat(my_encoder.encoder_state, axis=-1)
-    else:
-      encoder_state = tuple([tf.concat(i,axis=-1) for i in my_encoder.encoder_state])
-    my_decoder = decoder.Model(encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
+    encoder_outputs = my_encoder.encoder_outputs
+    encoder_state = my_encoder.encoder_state
+    my_decoder = decoder.Model(encoder_outputs, encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
     total_loss = params['trade_off'] * encoder_loss + (1 - params['trade_off']) * decoder_loss + params['weight_decay'] * tf.add_n(
@@ -249,11 +247,9 @@ def model_fn(features, labels, mode, params):
     encoder_target = features.get('encoder_target', None)
     decoder_target = features.get('encoder_target', None)
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
-    if params['encoder_num_layers'] == 1:
-      encoder_state = tf.concat(my_encoder.encoder_state, axis=-1)
-    else:
-      encoder_state = tuple([tf.concat(i,axis=-1) for i in my_encoder.encoder_state])
-    my_decoder = decoder.Model(encoder_state, None, None, params, mode, 'Decoder')
+    encoder_outputs = my_encoder.encoder_outputs
+    encoder_state = my_encoder.encoder_state
+    my_decoder = decoder.Model(encoder_outputs, encoder_state, None, None, params, mode, 'Decoder')
     res = my_encoder.infer()
     predict_value = res['predict_value']
     res = my_decoder.decode()
@@ -327,7 +323,6 @@ def main(unparsed):
     params = get_params()
 
     #model_fn(tf.zeros([128,40,1], dtype=tf.int32),tf.zeros([128,1]),tf.estimator.ModeKeys.TRAIN, params)
-
 
     with open(os.path.join(FLAGS.model_dir, 'hparams.json'), 'w') as f:
       json.dump(params, f)

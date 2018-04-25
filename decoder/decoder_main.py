@@ -31,7 +31,8 @@ parser.add_argument('--restore', action='store_true', default=False)
 parser.add_argument('--decoder_num_layers', type=int, default=1)
 parser.add_argument('--decoder_hidden_size', type=int, default=32)
 parser.add_argument('--B', type=int, default=5)
-parser.add_argument('--decode_length', type=int, default=60)
+parser.add_argument('--encoder_length', type=int, default=60) #encoder output length
+parser.add_argument('--decoder_length', type=int, default=60)
 parser.add_argument('--decoder_dropout', type=float, default=0.0)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
 parser.add_argument('--decoder_vocab_size', type=int, default=21)
@@ -44,6 +45,7 @@ parser.add_argument('--start_decay_step', type=int, default=100)
 parser.add_argument('--decay_steps', type=int, default=1000)
 parser.add_argument('--decay_factor', type=float, default=0.9)
 parser.add_argument('--max_gradient_norm', type=float, default=5.0)
+parser.add_argument('--attn', action='store_true', default=False)
 parser.add_argument('--time_major', action='store_true', default=False)
 #
 parser.add_argument('--predict_from_file', type=str, default=None)
@@ -169,16 +171,16 @@ def _del_dict_nones(d):
 
 def model_fn(features, labels, mode, params):
   if mode == tf.estimator.ModeKeys.TRAIN:
-    inputs = features['inputs']
+    encoder_state = features['inputs']
     targets_1_inputs = features['targets_1_inputs']
     targets_1 = features['targets_1']
     targets_2_inputs = features['targets_2_inputs']
     targets_2 = features['targets_2']
-    inputs.set_shape([None, params['decoder_hidden_size']])
-    inputs = tf.contrib.rnn.LSTMStateTuple(inputs, inputs)
-    inputs = (inputs,) * params['decoder_num_layers']
-    model1 = decoder.Model(inputs, targets_1_inputs, targets_1, params, mode, 'Decoder_1')
-    model2 = decoder.Model(inputs, targets_2_inputs, targets_2, params, mode, 'Decoder_2')
+    encoder_state.set_shape([None, params['decoder_hidden_size']])
+    encoder_state = tf.contrib.rnn.LSTMStateTuple(encoder_state, encoder_state)
+    encoder_state = (encoder_state,) * params['decoder_num_layers']
+    model1 = decoder.Model(None, encoder_state, targets_1_inputs, targets_1, params, mode, 'Decoder_1')
+    model2 = decoder.Model(None, encoder_state, targets_2_inputs, targets_2, params, mode, 'Decoder_2')
     loss1 = model1.loss
     loss2 = model2.loss
     total_loss = loss1 + loss2 + params['weight_decay'] * tf.add_n(
@@ -226,16 +228,16 @@ def model_fn(features, labels, mode, params):
       loss=total_loss,
       train_op=train_op)
   elif mode == tf.estimator.ModeKeys.EVAL:
-    inputs = features['inputs']
+    encoder_state = features['inputs']
     targets_1_inputs = features['targets_1_inputs']
     targets_1 = features['targets_1']
     targets_2_inputs = features['targets_2_inputs']
     targets_2 = features['targets_2']
-    inputs.set_shape([None, params['decoder_hidden_size']])
-    inputs = tf.contrib.rnn.LSTMStateTuple(inputs, inputs)
-    inputs = (inputs,) * params['decoder_num_layers']
-    model1 = decoder.Model(inputs, targets_1_inputs, targets_1, params, mode, 'Decoder_1')
-    model2 = decoder.Model(inputs, targets_2_inputs, targets_2, params, mode, 'Decoder_2')
+    encoder_state.set_shape([None, params['decoder_hidden_size']])
+    encoder_state = tf.contrib.rnn.LSTMStateTuple(encoder_state, encoder_state)
+    encoder_state = (encoder_state,) * params['decoder_num_layers']
+    model1 = decoder.Model(encoder_state, targets_1_inputs, targets_1, params, mode, 'Decoder_1')
+    model2 = decoder.Model(encoder_state, targets_2_inputs, targets_2, params, mode, 'Decoder_2')
     #targets_inputs = features['targets_inputs']
     #targets = labels
     #model = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder')
@@ -250,14 +252,14 @@ def model_fn(features, labels, mode, params):
       mode=mode,
       loss=total_loss)
   elif mode == tf.estimator.ModeKeys.PREDICT:
-    inputs = features['inputs']
+    encoder_state = features['inputs']
     targets_inputs = features['targets_inputs']
     targets = features['targets']
-    inputs.set_shape([None, params['decoder_hidden_size']])
-    inputs = tf.contrib.rnn.LSTMStateTuple(inputs, inputs)
-    inputs = (inputs,) * params['decoder_num_layers']
-    model1 = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder_1')
-    model2 = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder_2')
+    encoder_state.set_shape([None, params['decoder_hidden_size']])
+    encoder_state = tf.contrib.rnn.LSTMStateTuple(encoder_state, encoder_state)
+    encoder_state = (encoder_state,) * params['decoder_num_layers']
+    model1 = decoder.Model(encoder_state, targets_inputs, targets, params, mode, 'Decoder_1')
+    model2 = decoder.Model(encoder_state, targets_inputs, targets, params, mode, 'Decoder_2')
     res1 = model1.decode()
     res2 = model2.decode()
     sample_id = tf.concat([res1['sample_id'],res2['sample_id']],axis=1)
