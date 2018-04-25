@@ -34,7 +34,7 @@ parser.add_argument('--B', type=int, default=5)
 parser.add_argument('--decode_length', type=int, default=60)
 parser.add_argument('--decoder_dropout', type=float, default=0.0)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
-parser.add_argument('--decoder_vocab_size', type=float, default=26)
+parser.add_argument('--decoder_vocab_size', type=int, default=21)
 parser.add_argument('--train_epochs', type=int, default=1000)
 parser.add_argument('--eval_frequency', type=int, default=10)
 parser.add_argument('--batch_size', type=int, default=128)
@@ -48,7 +48,7 @@ parser.add_argument('--time_major', action='store_true', default=False)
 #
 parser.add_argument('--predict_from_file', type=str, default=None)
 parser.add_argument('--predict_to_file', type=str, default=None)
-parser.add_argument('--beam_width', type=int, default=0)
+parser.add_argument('--predict_beam_width', type=int, default=0)
 
 SOS=0
 EOS=0
@@ -129,17 +129,17 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
     def decode_record(record):
       src = tf.string_split([record]).values
       src = tf.string_to_number(src, out_type=tf.float32)
-      return src #, sos_id
+      return src, tf.constant([SOS], dtype=tf.int32)
     dataset = dataset.map(decode_record)
     dataset = dataset.batch(FLAGS.batch_size)
     iterator = dataset.make_one_shot_iterator()
-    inputs = iterator.get_next()
+    inputs, targets_inputs = iterator.get_next()
     assert inputs.shape.ndims == 2
     #assert targets_inputs.shape.ndims == 2
     
     return {
       'inputs' : inputs, 
-      'targets_inputs' : None,
+      'targets_inputs' : targets_inputs,
       'targets' : None,
     }, None
 

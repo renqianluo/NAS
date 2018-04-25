@@ -15,7 +15,7 @@ class Decoder():
     self.embedding_decoder = embedding_decoder
     self.output_layer = output_layer
     self.time_major = params['time_major']
-    self.beam_width = params['beam_width']
+    self.beam_width = params['predict_beam_width']
     self.mode = mode
 
   def build_decoder(self, encoder_state, target_input, batch_size):
@@ -27,7 +27,6 @@ class Decoder():
     with tf.variable_scope('decoder') as decoder_scope:
       #decoder_init_state = tf.concat([decoder_init_state, decoder_init_state], axis=-1)
       cell, decoder_initial_state = self.build_decoder_cell(encoder_state)
-
       if self.mode != tf.estimator.ModeKeys.PREDICT:
         if self.time_major:
           target_input = tf.transpose(target_input)
@@ -81,7 +80,6 @@ class Decoder():
               decoder_initial_state,
               output_layer=self.output_layer  # applied per timestep
           )
-
         # Dynamic decoding
         outputs, final_context_state, _ = tf.contrib.seq2seq.dynamic_decode(
             my_decoder,
@@ -103,9 +101,7 @@ class Decoder():
   def build_decoder_cell(self, encoder_state):
     cell_list = []
     for i in range(self.num_layers):
-      lstm_cell = tf.contrib.rnn.LSTMCell(
-        self.hidden_size,
-        state_is_tuple=True)
+      lstm_cell = tf.contrib.rnn.LSTMCell(self.hidden_size)
       lstm_cell = tf.contrib.rnn.DropoutWrapper(
         lstm_cell, 
         output_keep_prob=1-self.dropout)
@@ -134,9 +130,9 @@ class Model(object):
     """Create the model."""
     self.params = params
     self.init_decoder_state = init_decoder_state
-    self.batch_size = tf.shape(self.init_decoder_state)[0]
     self.target_input = target_input
     self.target = target
+    self.batch_size = tf.shape(self.target_input)[0]
     self.mode = mode
     self.vocab_size = params['decoder_vocab_size']
     self.num_layers = params['decoder_num_layers']

@@ -209,12 +209,12 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
   if decode_to_file:
     score_output_filename = '{}.score'.format(decode_to_file)
     emb_output_filename = '{}.emb'.format(decode_to_file)
-    new_emb_output_filename = '{}.new_emb'.format(decode_to_file)
+    new_emb_output_filename = '{}.new_emb.{}'.format(decode_to_file, FLAGS.predict_lambda)
     #hidden_output_filename = '{}.hid'.format(decode_to_file)
   else:
     score_output_filename = '{}.score'.format(decode_from_file)
     emb_output_filename = '{}.emb'.format(decode_from_file)
-    new_emb_output_filename = '{}.new_emb'.format(decode_from_file)
+    new_emb_output_filename = '{}.new_emb.{}'.format(decode_from_file, FLAGS.predict_lambda)
     #hidden_output_filename = '{}.hid'.format(decode_from_file)
 
   tf.logging.info('Writing results')
