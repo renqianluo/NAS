@@ -25,8 +25,7 @@ class Encoder(object):
     self.batch_size = batch_size
     assert x.shape.ndims == 2, '[batch_size, length]'
     x = tf.gather(self.W_emb, x)
-    x = tf.reshape(x, [batch_size, self.source_length//3, 3*self.emb_size])
-    #x = x[:,:,0:self.emb_size] + x[:,:,self.emb_size:2*self.emb_size] + x[:,:,2*self.emb_size:3*self.emb_size]
+    #x = tf.reshape(x, [batch_size, self.source_length//3, 3*self.emb_size])
     cell_list = []
     for i in range(self.num_layers):
       lstm_cell = tf.contrib.rnn.LSTMCell(
@@ -37,7 +36,7 @@ class Encoder(object):
       cell_list.append(lstm_cell)
     #initial_state = cell_list[0].zero_state(batch_size, dtype=tf.float32)
     if len(cell_list) == 0:
-      self.encoder_output = x
+      self.encoder_outputs = x
       self.encoder_state = x
     else:
       if len(cell_list) == 1:
@@ -45,7 +44,7 @@ class Encoder(object):
       else:
         cell = tf.contrib.rnn.MultiRNNCell(cell_list)
       x, state = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)#initial_state=initial_state, dtype=tf.float32)
-      self.encoder_output = x
+      self.encoder_outputs = x
       self.encoder_state = state
     
     x = tf.reduce_mean(x, axis=1)
@@ -66,7 +65,7 @@ class Encoder(object):
     return {
       'arch_emb' : self.arch_emb,
       'predict_value' : self.predict_value,
-      'encoder_output' : self.encoder_output,
+      'encoder_outputs' : self.encoder_outputs,
       'encoder_state' : self.encoder_state,
     }
 
@@ -95,7 +94,7 @@ class Model(object):
     # Encoder
     with tf.variable_scope(scope):
       self.W_emb = tf.get_variable('W_emb', [self.vocab_size, self.emb_size])
-      self.arch_emb, self.predict_value, self.encoder_output, self.encoder_state = self.build_encoder()
+      self.arch_emb, self.predict_value, self.encoder_outputs, self.encoder_state = self.build_encoder()
       if self.mode != tf.estimator.ModeKeys.PREDICT:
         self.compute_loss()
       else:
@@ -105,7 +104,7 @@ class Model(object):
   def build_encoder(self):
     encoder = Encoder(self.params, self.mode, self.W_emb)
     res = encoder.build_encoder(self.x, self.batch_size, self.is_training)
-    return res['arch_emb'], res['predict_value'], res['encoder_output'], res['encoder_state']
+    return res['arch_emb'], res['predict_value'], res['encoder_outputs'], res['encoder_state']
 
   def compute_loss(self):
     mean_squared_error = tf.losses.mean_squared_error(labels=self.y, predictions=self.predict_value)

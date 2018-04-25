@@ -5,6 +5,61 @@ from __future__ import print_function
 import tensorflow as tf
 from tensorflow.python.layers import core as layers_core
 
+class AttentionMultiCell(tf.nn.rnn_cell.MultiRNNCell):
+  """A MultiCell with GNMT attention style."""
+
+  def __init__(self, attention_cell, cells, use_new_attention=True):
+    """Creates a GNMTAttentionMultiCell.
+
+    Args:
+      attention_cell: An instance of AttentionWrapper.
+      cells: A list of RNNCell wrapped with AttentionInputWrapper.
+      use_new_attention: Whether to use the attention generated from current
+        step bottom layer's output. Default is False.
+    """
+    cells = [attention_cell] + cells
+    self.use_new_attention = use_new_attention
+    super(AttentionMultiCell, self).__init__(cells, state_is_tuple=True)
+
+  def __call__(self, inputs, state, scope=None):
+    """Run the cell with bottom layer's attention copied to all upper layers."""
+    if not tf.contrib.framework.nest.is_sequence(state):
+      raise ValueError(
+          "Expected state to be a tuple of length %d, but received: %s"
+          % (len(self.state_size), state))
+
+    with tf.variable_scope(scope or "multi_rnn_cell"):
+      new_states = []
+
+      with tf.variable_scope("cell_0_attention"):
+        attention_cell = self._cells[0]
+        attention_state = state[0]
+        cur_inp, new_attention_state = attention_cell(inputs, attention_state)
+        new_states.append(new_attention_state)
+
+      for i in range(1, len(self._cells)):
+        with tf.variable_scope("cell_%d" % i):
+
+          cell = self._cells[i]
+          cur_state = state[i]
+
+          if not isinstance(cur_state, tf.contrib.rnn.LSTMStateTuple):
+            raise TypeError("`state[{}]` must be a LSTMStateTuple".format(i))
+		# we always use new attention v2, where the attention output  from the first layer is broadcast to all layers after that. 
+		#it is emprically much better than using the attention input to the first layers with all subsequent layers.
+          if self.use_new_attention:
+            cur_state = cur_state._replace(h=tf.concat(
+                [cur_state.h, new_attention_state.attention], 1))
+          else:
+            cur_state = cur_state._replace(h=tf.concat(
+                [cur_state.h, attention_state.attention], 1))
+
+          cur_inp, new_state = cell(cur_inp, cur_state)
+          new_states.append(new_state)
+
+    return cur_inp, tuple(new_states)
+
+
 class Decoder():
   def __init__(self, params, mode, embedding_decoder, output_layer):
     self.num_layers = params['decoder_num_layers']
@@ -101,8 +156,8 @@ class Decoder():
 
 
   def build_decoder_cell(self, encoder_outputs, encoder_state):
+    source_sequence_length = tf.tile([self.source_length], [self.batch_size])
     if self.attn:
-      source_sequence_length = tf.tile([self.source_length], [self.batch_size])
       if self.time_major:
         memory = tf.transpose(encoder_outputs, [1, 0, 2])
       else:
@@ -115,13 +170,13 @@ class Decoder():
         source_sequence_length, multiplier=self.beam_width)
       encoder_state = tf.contrib.seq2seq.tile_batch(
         encoder_state, multiplier=self.beam_width)
-      batch_size = self.batch_size * beam_width
+      batch_size = self.batch_size * self.beam_width
     else:
       batch_size = self.batch_size
 
     if self.attn:
-      attention_mechanism = create_attention_mechanism(
-        'normed_bahdanau', self.num_units, memory, source_sequence_length)
+      attention_mechanism = self.create_attention_mechanism(
+        'normed_bahdanau', self.hidden_size, memory, source_sequence_length)
 
     cell_list = []
     for i in range(self.num_layers):
@@ -130,21 +185,33 @@ class Decoder():
         lstm_cell, 
         output_keep_prob=1-self.dropout)
       cell_list.append(lstm_cell)
-    if len(cell_list) == 1:
-      cell = cell_list[0]
-    else:
-      cell = tf.contrib.rnn.MultiRNNCell(cell_list)
 
     if self.attn:
-      alignment_memory = (self.mode == tf.estimator.ModeKeys.PREDICT and self.beam_width == 0)
-      cell = tf.contrib.seq2seq.AttentionWrapper(
-        cell,
+      attention_cell = cell_list.pop(0)
+      alignment_history = (self.mode == tf.estimator.ModeKeys.PREDICT and self.beam_width == 0)
+      attention_cell = tf.contrib.seq2seq.AttentionWrapper(
+        attention_cell,
         attention_mechanism,
-        attention_layer_size=self.num_units,
+        attention_layer_size=None,
+        output_attention=False,
         alignment_history=alignment_history,
         name='attention')
+      cell = AttentionMultiCell(attention_cell, cell_list)
+    else:
+      if len(cell_list) == 1:
+        cell = cell_list[0]
+      else:
+        cell = tf.contrib.rnn.MultiRNNCell(cell_list)
 
-    decoder_initial_state = encoder_state
+    if self.pass_hidden_state:
+      #decoder_initial_state = cell.zero_state(batch_size, tf.float32).clone(cell_state=encoder_state)
+      decoder_initial_state = tuple(
+          zs.clone(cell_state=es)
+          if isinstance(zs, tf.contrib.seq2seq.AttentionWrapperState) else es
+          for zs, es in zip(
+              cell.zero_state(batch_size, tf.float32), encoder_state))
+    else:
+      decoder_initial_state = cell.zero_state(batch_size, tf.float32)
 
     return cell, decoder_initial_state
 
@@ -199,7 +266,8 @@ class Model(object):
       self.params['decoder_dropout'] = 0.0
 
     # Initializer
-    initializer = tf.orthogonal_initializer()
+    #initializer = tf.orthogonal_initializer()
+    initializer = tf.random_uniform_initializer(-0.08, 0.08)
     tf.get_variable_scope().set_initializer(initializer)
 
     ## Build graph

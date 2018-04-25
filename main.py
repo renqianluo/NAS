@@ -38,12 +38,11 @@ parser.add_argument('--decoder_hidden_size', type=int, default=32)
 parser.add_argument('--source_length', type=int, default=60)
 parser.add_argument('--encoder_length', type=int, default=60)
 parser.add_argument('--decoder_length', type=int, default=60)
-parser.add_argument('--input_keep_prob', type=float, default=1.0)
-parser.add_argument('--encoder_keep_prob', type=float, default=1.0)
-parser.add_argument('--decoder_keep_prob', type=float, default=1.0)
+parser.add_argument('--encoder_dropout', type=float, default=0.0)
+parser.add_argument('--decoder_dropout', type=float, default=0.0)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
 parser.add_argument('--encoder_vocab_size', type=int, default=21)
-parser.add_argument('--decoder_vocab_size', type=int, default=26)
+parser.add_argument('--decoder_vocab_size', type=int, default=21)
 parser.add_argument('--trade_off', type=float, default=0.5)
 parser.add_argument('--train_epochs', type=int, default=1000)
 parser.add_argument('--eval_frequency', type=int, default=10)
@@ -57,8 +56,10 @@ parser.add_argument('--attention', action='store_true', default=False)
 parser.add_argument('--max_gradient_norm', type=float, default=5.0)
 parser.add_argument('--beam_width', type=int, default=0)
 parser.add_argument('--time_major', action='store_true', default=False)
-parser.add_argument('--decode_from_file', type=str, default=None)
-parser.add_argument('--decode_to_file', type=str, default=None)
+parser.add_argument('--predict_from_file', type=str, default=None)
+parser.add_argument('--predict_to_file', type=str, default=None)
+parser.add_argument('--predict_beam_width', type=int, default=0)
+parser.add_argument('--predict_lambda', type=float, default=0.1)
 
 SOS=0
 EOS=0
@@ -245,11 +246,12 @@ def model_fn(features, labels, mode, params):
   elif mode == tf.estimator.ModeKeys.PREDICT:
     encoder_input = features['encoder_input']
     encoder_target = features.get('encoder_target', None)
-    decoder_target = features.get('encoder_target', None)
+    decoder_input = features.get('decoder_input', None)
+    decoder_target = features.get('decoder_target', None)
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
     encoder_outputs = my_encoder.encoder_outputs
     encoder_state = my_encoder.encoder_state
-    my_decoder = decoder.Model(encoder_outputs, encoder_state, None, None, params, mode, 'Decoder')
+    my_decoder = decoder.Model(encoder_outputs, encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
     res = my_encoder.infer()
     predict_value = res['predict_value']
     res = my_decoder.decode()
