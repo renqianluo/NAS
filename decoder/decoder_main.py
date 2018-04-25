@@ -236,8 +236,8 @@ def model_fn(features, labels, mode, params):
     encoder_state.set_shape([None, params['decoder_hidden_size']])
     encoder_state = tf.contrib.rnn.LSTMStateTuple(encoder_state, encoder_state)
     encoder_state = (encoder_state,) * params['decoder_num_layers']
-    model1 = decoder.Model(encoder_state, targets_1_inputs, targets_1, params, mode, 'Decoder_1')
-    model2 = decoder.Model(encoder_state, targets_2_inputs, targets_2, params, mode, 'Decoder_2')
+    model1 = decoder.Model(None, encoder_state, targets_1_inputs, targets_1, params, mode, 'Decoder_1')
+    model2 = decoder.Model(None, encoder_state, targets_2_inputs, targets_2, params, mode, 'Decoder_2')
     #targets_inputs = features['targets_inputs']
     #targets = labels
     #model = decoder.Model(inputs, targets_inputs, targets, params, mode, 'Decoder')
@@ -258,8 +258,8 @@ def model_fn(features, labels, mode, params):
     encoder_state.set_shape([None, params['decoder_hidden_size']])
     encoder_state = tf.contrib.rnn.LSTMStateTuple(encoder_state, encoder_state)
     encoder_state = (encoder_state,) * params['decoder_num_layers']
-    model1 = decoder.Model(encoder_state, targets_inputs, targets, params, mode, 'Decoder_1')
-    model2 = decoder.Model(encoder_state, targets_inputs, targets, params, mode, 'Decoder_2')
+    model1 = decoder.Model(None, encoder_state, targets_inputs, targets, params, mode, 'Decoder_1')
+    model2 = decoder.Model(None, encoder_state, targets_inputs, targets, params, mode, 'Decoder_2')
     res1 = model1.decode()
     res2 = model2.decode()
     sample_id = tf.concat([res1['sample_id'],res2['sample_id']],axis=1)
