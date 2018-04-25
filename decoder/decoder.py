@@ -10,23 +10,25 @@ class Decoder():
     self.num_layers = params['decoder_num_layers']
     self.hidden_size = params['decoder_hidden_size']
     self.length = params['decode_length']
+    self.source_length = params['source_length']
     self.vocab_size = params['decoder_vocab_size']
     self.dropout = params['decoder_dropout']
     self.embedding_decoder = embedding_decoder
     self.output_layer = output_layer
     self.time_major = params['time_major']
     self.beam_width = params['predict_beam_width']
+    self.attn = params['attention']
+    self.pass_hidden_state = params.get('pass_hidden_state', True)
     self.mode = mode
 
-  def build_decoder(self, encoder_state, target_input, batch_size):
+  def build_decoder(self, encoder_outputs, encoder_state, target_input, batch_size):
     tgt_sos_id = tf.constant(0)
     tgt_eos_id = tf.constant(0)
 
     self.batch_size = batch_size
 
     with tf.variable_scope('decoder') as decoder_scope:
-      #decoder_init_state = tf.concat([decoder_init_state, decoder_init_state], axis=-1)
-      cell, decoder_initial_state = self.build_decoder_cell(encoder_state)
+      cell, decoder_initial_state = self.build_decoder_cell(encoder_outputs, encoder_state)
       if self.mode != tf.estimator.ModeKeys.PREDICT:
         if self.time_major:
           target_input = tf.transpose(target_input)
@@ -98,7 +100,29 @@ class Decoder():
     return logits, sample_id, final_context_state
 
 
-  def build_decoder_cell(self, encoder_state):
+  def build_decoder_cell(self, encoder_outputs, encoder_state):
+    if self.attn:
+      source_sequence_length = tf.tile([self.source_length], [self.batch_size])
+      if self.time_major:
+        memory = tf.transpose(encoder_outputs, [1, 0, 2])
+      else:
+        memory = encoder_outputs
+
+    if self.mode == tf.estimator.ModeKeys.PREDICT and self.beam_width > 0:
+      if self.attn:
+        memory = tf.contrib.seq2seq.tile_batch(memory, multiplier=self.beam_width)
+      source_sequence_length = tf.contrib.seq2seq.tile_batch(
+        source_sequence_length, multiplier=self.beam_width)
+      encoder_state = tf.contrib.seq2seq.tile_batch(
+        encoder_state, multiplier=self.beam_width)
+      batch_size = self.batch_size * beam_width
+    else:
+      batch_size = self.batch_size
+
+    if self.attn:
+      attention_mechanism = create_attention_mechanism(
+        'normed_bahdanau', self.num_units, memory, source_sequence_length)
+
     cell_list = []
     for i in range(self.num_layers):
       lstm_cell = tf.contrib.rnn.LSTMCell(self.hidden_size)
@@ -110,18 +134,52 @@ class Decoder():
       cell = cell_list[0]
     else:
       cell = tf.contrib.rnn.MultiRNNCell(cell_list)
-    # For beam search, we need to replicate encoder infos beam_width times
-    if self.mode == tf.estimator.ModeKeys.PREDICT and self.beam_width > 0:
-      decoder_initial_state = tf.contrib.seq2seq.tile_batch(
-          encoder_state, multiplier=self.beam_width)
+
+    if self.attn:
+      alignment_memory = (self.mode == tf.estimator.ModeKeys.PREDICT and self.beam_width == 0)
+      cell = tf.contrib.seq2seq.AttentionWrapper(
+        cell,
+        attention_mechanism,
+        attention_layer_size=num_units,
+        alignment_history=alignment_history,
+        name='attention')
+
+    if self.pass_hidden_state:
+      decoder_initial_state = cell.zero_state(batch_size, tf.float32).clone(
+        cell_state=encoder_state)
     else:
-      decoder_initial_state = encoder_state
+      decoder_initial_state = cell.zero_state(batch_size, tf.float32)
 
     return cell, decoder_initial_state
 
+  def create_attention_mechanism(self, attention_option, num_units, memory, source_sequence_length):
+    if attention_option == "luong":
+      attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+        num_units, memory, memory_sequence_length=source_sequence_length)
+    elif attention_option == "scaled_luong":
+      attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+        num_units,
+        memory,
+        memory_sequence_length=source_sequence_length,
+        scale=True)
+    elif attention_option == "bahdanau":
+      attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(
+        num_units, memory, memory_sequence_length=source_sequence_length)
+    elif attention_option == "normed_bahdanau":
+      attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(
+        num_units,
+        memory,
+        memory_sequence_length=source_sequence_length,
+        normalize=True)
+    else:
+      raise ValueError("Unknown attention option %s" % attention_option)
+
+    return attention_mechanism
+
 class Model(object):
   def __init__(self,
-               init_decoder_state,
+               encoder_outputs,
+               encoder_state,
                target_input,
                target,
                params,
@@ -129,7 +187,8 @@ class Model(object):
                scope=None):
     """Create the model."""
     self.params = params
-    self.init_decoder_state = init_decoder_state
+    self.encoder_outputs = encoder_outputs
+    self.encoder_state = encoder_state
     self.target_input = target_input
     self.target = target
     self.batch_size = tf.shape(self.target_input)[0]
@@ -171,7 +230,8 @@ class Model(object):
   
   def build_decoder(self):
     decoder = Decoder(self.params, self.mode, self.W_emb, self.output_layer)
-    logits, sample_id, final_context_state = decoder.build_decoder(self.init_decoder_state, self.target_input, self.batch_size)
+    logits, sample_id, final_context_state = decoder.build_decoder(
+      self.encoder_outputs, self.encoder_state, self.target_input, self.batch_size)
     return logits, sample_id, final_context_state
 
   def get_max_time(self, tensor):

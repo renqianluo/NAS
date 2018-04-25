@@ -170,7 +170,7 @@ class Model(object):
     w = tf.get_variable('Encoder/regression/kernel')
     b = tf.get_variable('Encoder/regression/bias')
     grad_on_arch_emb = tf.sigmoid(tf.matmul(self.arch_emb,w)+b) * \
-      (1 - tf.sigmoid(tf.matmul(self.arch_emb, w+b))) * \
+      (1 - tf.sigmoid(tf.matmul(self.arch_emb, w)+b)) * \
       tf.transpose(w,[1,0])
     new_arch_emb = self.arch_emb + self.params['predict_lambda'] * grad_on_arch_emb
     return {
