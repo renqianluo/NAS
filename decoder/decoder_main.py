@@ -15,7 +15,7 @@ import collections
 from tensorflow.python.ops import lookup_ops
 
 _NUM_SAMPLES = {
-  'train' : 600,
+  'train' : 10000,
   'test' : 50,
 }
 
@@ -31,6 +31,7 @@ parser.add_argument('--restore', action='store_true', default=False)
 parser.add_argument('--decoder_num_layers', type=int, default=1)
 parser.add_argument('--decoder_hidden_size', type=int, default=32)
 parser.add_argument('--B', type=int, default=5)
+parser.add_argument('--source_length', type=int, default=60) #encoder source length
 parser.add_argument('--encoder_length', type=int, default=60) #encoder output length
 parser.add_argument('--decoder_length', type=int, default=60)
 parser.add_argument('--decoder_dropout', type=float, default=0.0)
@@ -297,7 +298,9 @@ def main(unparsed):
       json.dump(params, f)
 
     # Set up a RunConfig to only save checkpoints once per training cycle.
-    run_config = tf.estimator.RunConfig().replace(save_checkpoints_secs=1e9)
+    run_config = tf.estimator.RunConfig(
+      keep_checkpoint_max=1000,
+      save_checkpoints_secs=1e9)
     estimator = tf.estimator.Estimator(
       model_fn=model_fn, model_dir=params['model_dir'], config=run_config,
       params=params)
