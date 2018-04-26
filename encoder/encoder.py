@@ -19,13 +19,19 @@ class Encoder(object):
     self.encoder_length = params['encoder_length']
     self.vocab_size = params['encoder_vocab_size']
     self.dropout = params['encoder_dropout']
+    self.time_major = params['time_major']
     self.W_emb = W_emb
     self.mode = mode
   def build_encoder(self, x, batch_size, is_training):
     self.batch_size = batch_size
     assert x.shape.ndims == 2, '[batch_size, length]'
     x = tf.gather(self.W_emb, x)
-    #x = tf.reshape(x, [batch_size, self.source_length//3, 3*self.emb_size])
+    if self.source_length != self.encoder_length:
+      tf.logging.info('Concacting source sequence along depth')
+      assert self.source_length == 3*self.encoder_length
+      x = tf.reshape(x, [batch_size, self.source_length//3, 3*self.emb_size])
+    if self.time_major:
+      x = tf.transpose(x, [1,0,2])
     cell_list = []
     for i in range(self.num_layers):
       lstm_cell = tf.contrib.rnn.LSTMCell(
@@ -43,12 +49,18 @@ class Encoder(object):
         cell = cell_list[0]
       else:
         cell = tf.contrib.rnn.MultiRNNCell(cell_list)
-      x, state = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)#initial_state=initial_state, dtype=tf.float32)
+      x, state = tf.nn.dynamic_rnn(cell, 
+        x, 
+        dtype=tf.float32,
+        time_major=self.time_major)#initial_state=initial_state, dtype=tf.float32)
       self.encoder_outputs = x
       self.encoder_state = state
     
-    x = tf.reduce_mean(x, axis=1)
-    x = tf.nn.l2_normalize(x, dim=1)
+    if self.time_major:
+      x = tf.reduce_mean(x, axis=0)
+    else:
+      x = tf.reduce_mean(x, axis=1)
+    x = tf.nn.l2_normalize(x, dim=-1)
 
     self.arch_emb = x
     

@@ -15,7 +15,7 @@ import json
 import collections
 
 _NUM_SAMPLES = {
-  'train' : 550,
+  'train' : 10000,
   'test' : 50,
 }
 
@@ -31,7 +31,7 @@ parser.add_argument('--restore', action='store_true', default=False)
 parser.add_argument('--encoder_num_layers', type=int, default=1)
 parser.add_argument('--encoder_hidden_size', type=int, default=96)
 parser.add_argument('--encoder_emb_size', type=int, default=32)
-parser.add_argument('--mlp_num_layers', type=int, default=1)
+parser.add_argument('--mlp_num_layers', type=int, default=0)
 parser.add_argument('--mlp_hidden_size', type=int, default=32)
 parser.add_argument('--decoder_num_layers', type=int, default=1)
 parser.add_argument('--decoder_hidden_size', type=int, default=32)
@@ -138,21 +138,21 @@ def create_vocab_tables(vocab_file):
 
 def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=None):
   def infer_input_fn():
-    sos_id = tf.constant([SOS], dtype=tf.int32)
     dataset = tf.data.TextLineDataset(decode_from_file)
     def decode_record(record):
       src = tf.string_split([record]).values
       src = tf.string_to_number(src, out_type=tf.int32)
-      return src #, sos_id
+      return src, tf.constant([SOS], dtype=tf.int32)
     dataset = dataset.map(decode_record)
     dataset = dataset.batch(FLAGS.batch_size)
     iterator = dataset.make_one_shot_iterator()
-    inputs = iterator.get_next()
+    inputs, targets_inputs = iterator.get_next()
     assert inputs.shape.ndims == 2
     #assert targets_inputs.shape.ndims == 2
     
     return {
-      'encoder_input' : inputs, 
+      'encoder_input' : inputs,
+      'decoder_input' : targets_inputs,
     }, None
 
   results = []
@@ -182,7 +182,11 @@ def model_fn(features, labels, mode, params):
     decoder_target = features['decoder_target']
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
     encoder_outputs = my_encoder.encoder_outputs
-    encoder_state = my_encoder.encoder_state
+    #encoder_state = my_encoder.encoder_state
+    encoder_state = my_encoder.arch_emb
+    encoder_state.set_shape([None, params['decoder_hidden_size']])
+    encoder_state = tf.contrib.rnn.LSTMStateTuple(encoder_state, encoder_state)
+    encoder_state = (encoder_state,) * params['decoder_num_layers']
     my_decoder = decoder.Model(encoder_outputs, encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
@@ -233,7 +237,11 @@ def model_fn(features, labels, mode, params):
     decoder_target = features['decoder_target']
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
     encoder_outputs = my_encoder.encoder_outputs
-    encoder_state = my_encoder.encoder_state
+    #encoder_state = my_encoder.encoder_state
+    encoder_state = my_encoder.arch_emb
+    encoder_state.set_shape([None, params['decoder_hidden_size']])
+    encoder_state = tf.contrib.rnn.LSTMStateTuple(encoder_state, encoder_state)
+    encoder_state = (encoder_state,) * params['decoder_num_layers']
     my_decoder = decoder.Model(encoder_outputs, encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
@@ -250,7 +258,11 @@ def model_fn(features, labels, mode, params):
     decoder_target = features.get('decoder_target', None)
     my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
     encoder_outputs = my_encoder.encoder_outputs
-    encoder_state = my_encoder.encoder_state
+    #encoder_state = my_encoder.encoder_state
+    encoder_state = my_encoder.arch_emb
+    encoder_state.set_shape([None, params['decoder_hidden_size']])
+    encoder_state = tf.contrib.rnn.LSTMStateTuple(encoder_state, encoder_state)
+    encoder_state = (encoder_state,) * params['decoder_num_layers']
     my_decoder = decoder.Model(encoder_outputs, encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
     res = my_encoder.infer()
     predict_value = res['predict_value']
@@ -330,7 +342,9 @@ def main(unparsed):
       json.dump(params, f)
 
     # Set up a RunConfig to only save checkpoints once per training cycle.
-    run_config = tf.estimator.RunConfig().replace(save_checkpoints_secs=1e9)
+    run_config = tf.estimator.RunConfig(
+      keep_checkpoint_max=1000,
+      save_checkpoints_secs=1e9)
     estimator = tf.estimator.Estimator(
       model_fn=model_fn, model_dir=params['model_dir'], config=run_config,
       params=params)
@@ -391,7 +405,7 @@ def main(unparsed):
     estimator = tf.estimator.Estimator(
       model_fn=model_fn, model_dir=FLAGS.model_dir, params=params)
     
-    predict_from_file(estimator, FLAGS.batch_size, FLAGS.decode_from_file, FLAGS.decode_to_file)
+    predict_from_file(estimator, FLAGS.batch_size, FLAGS.predict_from_file, FLAGS.predict_to_file)
 
 
 if __name__ == '__main__':
