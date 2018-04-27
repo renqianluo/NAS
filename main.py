@@ -341,6 +341,18 @@ def main(unparsed):
     with open(os.path.join(FLAGS.model_dir, 'hparams.json'), 'w') as f:
       json.dump(params, f)
 
+    if os.path.exists(os.path.join(params['model_dir'], 'checkpoint')):
+      with open(os.path.join(params['model_dir'], 'checkpoint'), 'r') as f:
+        line = f.readline()
+        line = line.strip().split(' ')[-1]
+        line = line.split('-')[-1][:-1]
+        previous_step = int(line)
+        num_images = _NUM_IMAGES['train']
+        batches_per_epoch = num_images / params['batch_size']
+        start_epoch_loop = int(previous_step / batches_per_epoch // FLAGS.epochs_per_eval)
+    else:
+      start_epoch_loop = 0
+
     # Set up a RunConfig to only save checkpoints once per training cycle.
     run_config = tf.estimator.RunConfig(
       keep_checkpoint_max=1000,
@@ -348,7 +360,7 @@ def main(unparsed):
     estimator = tf.estimator.Estimator(
       model_fn=model_fn, model_dir=params['model_dir'], config=run_config,
       params=params)
-    for _ in range(params['train_epochs'] // params['eval_frequency']):
+    for _ in range(start_epoch_loop, params['train_epochs'] // params['eval_frequency']):
       tensors_to_log = {
           'learning_rate': 'learning_rate',
           'mean_squared_error': 'Encoder/squared_error',#'mean_squared_error'
