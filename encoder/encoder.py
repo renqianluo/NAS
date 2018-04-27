@@ -119,8 +119,11 @@ class Model(object):
     return res['arch_emb'], res['predict_value'], res['encoder_outputs'], res['encoder_state']
 
   def compute_loss(self):
-    mean_squared_error = tf.losses.mean_squared_error(labels=self.y, predictions=self.predict_value)
-    #mean_squared_error = tf.losses.huber_loss(labels=self.y, predictions=self.predict_value)
+    weights = 1 - tf.cast(tf.equal(self.y, -1.0), tf.float32) 
+    mean_squared_error = tf.losses.mean_squared_error(
+      labels=self.y, 
+      predictions=self.predict_value,
+      weights=weights)
     tf.identity(mean_squared_error, name='squared_error')
     tf.summary.scalar('mean_squared_error', mean_squared_error)
     # Add weight decay to the loss.

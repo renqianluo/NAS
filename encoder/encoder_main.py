@@ -48,6 +48,7 @@ parser.add_argument('--lr', type=float, default=1.0)
 parser.add_argument('--start_decay_step', type=int, default=100)
 parser.add_argument('--decay_steps', type=int, default=1000)
 parser.add_argument('--decay_factor', type=float, default=0.9)
+parser.add_argument('--time_major', action='store_true', default=False)
 # Below are arguments for predicting
 parser.add_argument('--predict_from_file', type=str, default=None)
 parser.add_argument('--predict_to_file', type=str, default=None)
