@@ -347,9 +347,9 @@ def main(unparsed):
         line = line.strip().split(' ')[-1]
         line = line.split('-')[-1][:-1]
         previous_step = int(line)
-        num_images = _NUM_IMAGES['train']
-        batches_per_epoch = num_images / params['batch_size']
-        start_epoch_loop = int(previous_step / batches_per_epoch // FLAGS.epochs_per_eval)
+        num_samples = _NUM_SAMPLES['train']
+        batches_per_epoch = num_samples / params['batch_size']
+        start_epoch_loop = int(previous_step / batches_per_epoch // FLAGS.eval_frequency)
     else:
       start_epoch_loop = 0
 
