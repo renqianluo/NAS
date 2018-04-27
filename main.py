@@ -333,6 +333,13 @@ def main(unparsed):
   # Using the Winograd non-fused algorithms provides a small performance boost.
   os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
 
+  with open(os.path.join(FLAGS.data_dir, 'encoder.train.input'), 'r') as f:
+    lines = f.read().splitlines()
+    _NUM_SAMPLES['train'] = len(lines)
+  with open(os.path.join(FLAGS.data_dir, 'encoder.test.input'), 'r') as f:
+    lines = f.read().splitlines()
+    _NUM_SAMPLES['test'] = len(lines)
+
   if FLAGS.mode == 'train':
     params = get_params()
 
