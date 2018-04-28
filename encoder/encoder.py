@@ -90,13 +90,15 @@ class Model(object):
     self.batch_size = tf.shape(x)[0]
     self.vocab_size = params['encoder_vocab_size']
     self.emb_size = params['encoder_emb_size']
+    self.hidden_size = params['encoder_hidden_size']
     self.weight_decay = params['weight_decay']
     self.mode = mode
     self.is_training = self.mode == tf.estimator.ModeKeys.TRAIN
     if not self.is_training:
       self.params['encoder_dropout'] = 0.0
 
-    initializer = tf.orthogonal_initializer()
+    #initializer = tf.orthogonal_initializer()
+    initializer = tf.random_uniform_initializer(-self.hidden_size**(-0.5), self.hidden_size**(-0.5))
     tf.get_variable_scope().set_initializer(initializer)
     self.build_graph(scope=scope)
 

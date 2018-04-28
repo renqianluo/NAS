@@ -214,6 +214,26 @@ def model_fn(features, labels, mode, params):
     elif params['optimizer'] == 'adadelta':
       opt = tf.train.AdadeltaOptimizer(learning_rate=learning_rate)
 
+    global_step = tf.train.get_or_create_global_step()
+    learning_rate = tf.constant(params['lr'])
+    if params['optimizer'] == "sgd":
+      learning_rate = tf.cond(
+        global_step < params['start_decay_step'],
+        lambda: learning_rate,
+        lambda: tf.train.exponential_decay(
+                learning_rate,
+                (global_step - params['start_decay_step']),
+                params['decay_steps'],
+                params['decay_factor'],
+                staircase=True),
+                name="calc_learning_rate")
+      opt = tf.train.GradientDescentOptimizer(learning_rate)
+    elif params['optimizer'] == "adam":
+      assert float(params['lr']) <= 0.001, "! High Adam learning rate %g" % params['lr']
+      opt = tf.train.AdamOptimizer(learning_rate)
+    elif params['optimizer'] == 'adadelta':
+      opt = tf.train.AdadeltaOptimizer(learning_rate=learning_rate)
+
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):
       gradients, variables = zip(*opt.compute_gradients(total_loss))
