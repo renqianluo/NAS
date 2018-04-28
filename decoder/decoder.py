@@ -180,7 +180,9 @@ class Decoder():
 
     cell_list = []
     for i in range(self.num_layers):
-      lstm_cell = tf.contrib.rnn.LSTMCell(self.hidden_size)
+      lstm_cell = tf.contrib.rnn.LSTMCell(
+        self.hidden_size,
+        initializer=tf.orthogonal_initializer())
       lstm_cell = tf.contrib.rnn.DropoutWrapper(
         lstm_cell, 
         output_keep_prob=1-self.dropout)
