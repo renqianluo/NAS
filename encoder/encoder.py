@@ -98,8 +98,8 @@ class Model(object):
     if not self.is_training:
       self.params['encoder_dropout'] = 0.0
 
-    #initializer = tf.orthogonal_initializer()
-    initializer = tf.random_uniform_initializer(-self.hidden_size**(-0.5), self.hidden_size**(-0.5))
+    initializer = tf.orthogonal_initializer()
+    #initializer = tf.random_uniform_initializer(-self.hidden_size**(-0.5), self.hidden_size**(-0.5))
     tf.get_variable_scope().set_initializer(initializer)
     self.build_graph(scope=scope)
 
@@ -193,6 +193,7 @@ class Model(object):
     grads_on_outpus = [a * b for a,b in zip(lambdas, grads_on_outpus)]
     new_arch_outputs = self.encoder_outputs + grads_on_outpus
     new_arch_emb = tf.l2_normalize(new_arch_outputs)
+
     return {
       'new_arch_emb' : new_arch_emb,
       'new_arch_outputs' : new_arch_outputs,
