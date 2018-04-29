@@ -286,14 +286,27 @@ def model_fn(features, labels, mode, params):
     my_decoder = decoder.Model(encoder_outputs, encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
     res = my_encoder.infer()
     predict_value = res['predict_value']
+    arch_emb = res['arch_emb']
+    new_arch_emb = res['new_arch_emb']
+    new_arch_outputs = res['new_arch_outputs']
     res = my_decoder.decode()
     sample_id = res['sample_id']
+
+    encoder_state = new_arch_emb
+    encoder_state.set_shape([None, params['decoder_hidden_size']])
+    encoder_state = tf.contrib.rnn.LSTMStateTuple(encoder_state, encoder_state)
+    encoder_state = (encoder_state,) * params['decoder_num_layers']
+    tf.get_variable_scope().reuse_variables()
+    my_decoder = decoder.Model(new_arch_outputs, encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
+    res = my_decoder.infer()
+    new_sample_id = res['sample_id']
     #_log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
     predictions = {
       'arch' : decoder_target,
       'ground_truth_value' : encoder_target,
       'predict_value' : predict_value,
       'sample_id' : sample_id,
+      'new_sample_id' : new_sample_id,
     }
     _del_dict_nones(predictions)
 

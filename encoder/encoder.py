@@ -40,7 +40,6 @@ class Encoder(object):
         lstm_cell, 
         output_keep_prob=1-self.dropout)
       cell_list.append(lstm_cell)
-    #initial_state = cell_list[0].zero_state(batch_size, dtype=tf.float32)
     if len(cell_list) == 0:
       self.encoder_outputs = x
       self.encoder_state = x
@@ -49,10 +48,12 @@ class Encoder(object):
         cell = cell_list[0]
       else:
         cell = tf.contrib.rnn.MultiRNNCell(cell_list)
+      initial_state = cell.zero_state(batch_size, dtype=tf.float32)
       x, state = tf.nn.dynamic_rnn(cell, 
         x, 
         dtype=tf.float32,
-        time_major=self.time_major)#initial_state=initial_state, dtype=tf.float32)
+        time_major=self.time_major,
+        initial_state=initial_state, dtype=tf.float32)
       self.encoder_outputs = x
       self.encoder_state = state
     
@@ -165,7 +166,6 @@ class Model(object):
       self.train_op = opt.apply_gradients(
         zip(clipped_gradients, variables), global_step=self.global_step)
 
-
     tf.identity(self.learning_rate, 'learning_rate')
     tf.summary.scalar("learning_rate", self.learning_rate),
     tf.summary.scalar("total_loss", self.total_loss),
@@ -183,15 +183,19 @@ class Model(object):
 
   def infer(self):
     assert self.mode == tf.estimator.ModeKeys.PREDICT
-    tf.get_variable_scope().reuse_variables()
-    w = tf.get_variable('Encoder/regression/kernel')
-    b = tf.get_variable('Encoder/regression/bias')
-    grad_on_arch_emb = tf.sigmoid(tf.matmul(self.arch_emb,w)+b) * \
-      (1 - tf.sigmoid(tf.matmul(self.arch_emb, w)+b)) * \
-      tf.transpose(w,[1,0])
-    new_arch_emb = self.arch_emb + self.params['predict_lambda'] * grad_on_arch_emb
+    self.compute_loss()
+    grads_on_outpus = tf.gradients(self.loss, self.encoder_outputs)
+    assert isinstance(grads_on_outpus, list)
+    assert len(grads_on_outpus) == self.encoder_length
+    lambdas = []
+    for i in range(self.encoder_length):
+      lambdas.append(random.choice([0.1,0.15,0.2]))
+    grads_on_outpus = [a * b for a,b in zip(lambdas, grads_on_outpus)]
+    new_arch_outputs = self.encoder_outputs + grads_on_outpus
+    new_arch_emb = tf.l2_normalize(new_arch_outputs)
     return {
       'new_arch_emb' : new_arch_emb,
+      'new_arch_outputs' : new_arch_outputs,
       'arch_emb' : self.arch_emb,
       'predict_value' : self.predict_value,
     }
