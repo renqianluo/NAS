@@ -72,7 +72,7 @@ class Encoder(object):
         momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
         center=True, scale=True, training=is_training, fused=True
         )
-      x = tf.layers.dropout(x, 0.5)
+      x = tf.layers.dropout(x, self.dropout)
     self.predict_value = tf.layers.dense(x, 1, activation=tf.sigmoid, name='regression')
     return {
       'arch_emb' : self.arch_emb,
@@ -183,12 +183,8 @@ class Model(object):
 
   def infer(self):
     assert self.mode == tf.estimator.ModeKeys.PREDICT
-    tf.get_variable_scope().reuse_variables()
-    w = tf.get_variable('Encoder/regression/kernel')
-    b = tf.get_variable('Encoder/regression/bias')
-    grad_on_arch_emb = tf.sigmoid(tf.matmul(self.arch_emb,w)+b) * \
-      (1 - tf.sigmoid(tf.matmul(self.arch_emb, w)+b)) * \
-      tf.transpose(w,[1,0])
+    self.compute_loss()
+    grad_on_arch_emb = tf.gradients(self.loss, self.arch_emb)[0]
     new_arch_emb = self.arch_emb + self.params['predict_lambda'] * grad_on_arch_emb
     return {
       'new_arch_emb' : new_arch_emb,
