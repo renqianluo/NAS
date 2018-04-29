@@ -156,12 +156,16 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
     }, None
 
   results = []
+  new_ids = []
   result_iter = estimator.predict(infer_input_fn)
   for result in result_iter:
     output = result['sample_id'].flatten()
     output = ' '.join(map(str, output))
     tf.logging.info('Inference results OUTPUT: %s' % output)
     results.append(output)
+    output = result['new_sample_id'].flatten()
+    output = ' '.join(map(str, output))
+    new_ids.append(output)
 
   if decode_to_file:
     output_filename = decode_to_file
@@ -171,6 +175,9 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
   tf.logging.info('Writing results into {0}'.format(output_filename))
   with tf.gfile.Open(output_filename, 'w') as f:
     for res in results:
+      f.write('%s\n' % (res))
+  with tf.gfile.Open(output_filename+'.new_arch', 'w') as f:
+    for res in new_ids:
       f.write('%s\n' % (res))
 
 
@@ -298,7 +305,7 @@ def model_fn(features, labels, mode, params):
     encoder_state = (encoder_state,) * params['decoder_num_layers']
     tf.get_variable_scope().reuse_variables()
     my_decoder = decoder.Model(new_arch_outputs, encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
-    res = my_decoder.infer()
+    res = my_decoder.decode()
     new_sample_id = res['sample_id']
     #_log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
     predictions = {

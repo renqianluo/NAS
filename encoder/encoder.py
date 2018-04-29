@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import random
 import tensorflow as tf
 
 _BATCH_NORM_DECAY = 0.9
@@ -92,8 +93,10 @@ class Model(object):
     self.vocab_size = params['encoder_vocab_size']
     self.emb_size = params['encoder_emb_size']
     self.hidden_size = params['encoder_hidden_size']
+    self.encoder_length = params['encoder_length']
     self.weight_decay = params['weight_decay']
     self.mode = mode
+    self.time_major = params['time_major']
     self.is_training = self.mode == tf.estimator.ModeKeys.TRAIN
     if not self.is_training:
       self.params['encoder_dropout'] = 0.0
@@ -183,18 +186,21 @@ class Model(object):
 
   def infer(self):
     assert self.mode == tf.estimator.ModeKeys.PREDICT
-    self.compute_loss()
-    grads_on_outpus = tf.gradients(self.loss, self.encoder_outputs)
-    assert isinstance(grads_on_outpus, list)
-    assert len(grads_on_outpus) == self.encoder_length
+    grads_on_outputs = tf.gradients(self.predict_value, self.encoder_outputs)[0]
     lambdas = []
     for i in range(self.encoder_length):
-      lambdas.append(random.choice([0.1,0.15,0.2]))
-    grads_on_outpus = [a * b for a,b in zip(lambdas, grads_on_outpus)]
-    new_arch_outputs = self.encoder_outputs + grads_on_outpus
-    new_arch_emb = tf.l2_normalize(new_arch_outputs)
+      lambdas.append(random.choice([100.0, 150.0, 200.0]))
+    lambdas = tf.constant(lambdas)
+    lambdas = tf.expand_dims(tf.expand_dims(lambdas, axis=-1), axis=-1)
+    new_arch_outputs = self.encoder_outputs + lambdas * grads_on_outputs
+    if self.time_major:
+      new_arch_emb = tf.reduce_mean(new_arch_outputs, axis=0)
+    else:
+      new_arch_emb = tf.reduce_mean(new_arch_outputs, axis=1)
+    new_arch_emb = tf.nn.l2_normalize(new_arch_emb, dim=-1)
 
     return {
+      'grads_on_outputs' : grads_on_outputs,
       'new_arch_emb' : new_arch_emb,
       'new_arch_outputs' : new_arch_outputs,
       'arch_emb' : self.arch_emb,
