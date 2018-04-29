@@ -72,7 +72,7 @@ class Encoder(object):
         momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
         center=True, scale=True, training=is_training, fused=True
         )
-      x = tf.layers.dropout(x, self.dropout)
+      x = tf.layers.dropout(x, 0.5)
     self.predict_value = tf.layers.dense(x, 1, activation=tf.sigmoid, name='regression')
     return {
       'arch_emb' : self.arch_emb,
