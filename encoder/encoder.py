@@ -53,7 +53,7 @@ class Encoder(object):
         x, 
         dtype=tf.float32,
         time_major=self.time_major,
-        initial_state=initial_state, dtype=tf.float32)
+        initial_state=initial_state)
       self.encoder_outputs = x
       self.encoder_state = state
     
