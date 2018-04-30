@@ -41,22 +41,19 @@ class Encoder(object):
         lstm_cell, 
         output_keep_prob=1-self.dropout)
       cell_list.append(lstm_cell)
-    if len(cell_list) == 0:
-      self.encoder_outputs = x
-      self.encoder_state = x
+    if len(cell_list) == 1:
+      cell = cell_list[0]
     else:
-      if len(cell_list) == 1:
-        cell = cell_list[0]
-      else:
-        cell = tf.contrib.rnn.MultiRNNCell(cell_list)
-      initial_state = cell.zero_state(batch_size, dtype=tf.float32)
-      x, state = tf.nn.dynamic_rnn(cell, 
-        x, 
-        dtype=tf.float32,
-        time_major=self.time_major,
-        initial_state=initial_state)
-      self.encoder_outputs = x
-      self.encoder_state = state
+      cell = tf.contrib.rnn.MultiRNNCell(cell_list)
+    initial_state = cell.zero_state(batch_size, dtype=tf.float32)
+    x, state = tf.nn.dynamic_rnn(cell, 
+      x, 
+      dtype=tf.float32,
+      time_major=self.time_major,
+      initial_state=initial_state)
+    x = tf.nn.l2_normalize(x,dim=-1)
+    self.encoder_outputs = x
+    self.encoder_state = state
     
     if self.time_major:
       x = tf.reduce_mean(x, axis=0)
@@ -187,18 +184,13 @@ class Model(object):
   def infer(self):
     assert self.mode == tf.estimator.ModeKeys.PREDICT
     grads_on_outputs = tf.gradients(self.predict_value, self.encoder_outputs)[0]
-    lambdas = []
-    for i in range(self.encoder_length):
-      lambdas.append(random.choice([100.0, 150.0, 200.0]))
-    lambdas = tf.constant(lambdas)
-    lambdas = tf.expand_dims(tf.expand_dims(lambdas, axis=-1), axis=-1)
-    new_arch_outputs = self.encoder_outputs + lambdas * grads_on_outputs
+    #lambdas = tf.expand_dims(tf.expand_dims(lambdas, axis=-1), axis=-1)
+    new_arch_outputs = self.encoder_outputs + tf.constant(1.0) * grads_on_outputs
     if self.time_major:
       new_arch_emb = tf.reduce_mean(new_arch_outputs, axis=0)
     else:
       new_arch_emb = tf.reduce_mean(new_arch_outputs, axis=1)
     new_arch_emb = tf.nn.l2_normalize(new_arch_emb, dim=-1)
-
     return {
       'grads_on_outputs' : grads_on_outputs,
       'new_arch_emb' : new_arch_emb,

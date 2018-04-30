@@ -157,6 +157,7 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
 
   results = []
   new_ids = []
+  perfs = []
   result_iter = estimator.predict(infer_input_fn)
   for result in result_iter:
     output = result['sample_id'].flatten()
@@ -166,6 +167,9 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
     output = result['new_sample_id'].flatten()
     output = ' '.join(map(str, output))
     new_ids.append(output)
+    output = result['predict_value'].flatten()
+    output = ' '.join(map(str, output))
+    perfs.append(output)
 
   if decode_to_file:
     output_filename = decode_to_file
@@ -178,6 +182,9 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
       f.write('%s\n' % (res))
   with tf.gfile.Open(output_filename+'.new_arch', 'w') as f:
     for res in new_ids:
+      f.write('%s\n' % (res))
+  with tf.gfile.Open(output_filename+'.perf', 'w') as f:
+    for res in perfs:
       f.write('%s\n' % (res))
 
 

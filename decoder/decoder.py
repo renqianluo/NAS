@@ -3,7 +3,9 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
-from tensorflow.python.layers import core as layers_core
+from tensorflow.python.framework import ops
+from tensorflow.contrib.seq2seq.python.ops.basic_decoder import BasicDecoderOutput
+
 
 class AttentionMultiCell(tf.nn.rnn_cell.MultiRNNCell):
   """A MultiCell with GNMT attention style."""
@@ -60,6 +62,88 @@ class AttentionMultiCell(tf.nn.rnn_cell.MultiRNNCell):
     return cur_inp, tuple(new_states)
 
 
+class MyDense(tf.layers.Dense):
+  def __init__(self,
+      units,
+      activation=None,
+      use_bias=True,
+      kernel_initializer=None,
+      bias_initializer=tf.zeros_initializer(),
+      kernel_regularizer=None,
+      bias_regularizer=None,
+      activity_regularizer=None,
+      kernel_constraint=None,
+      bias_constraint=None,
+      trainable=True,
+      name=None,
+      **kwargs):
+    super(MyDense, self).__init__(
+      units,
+      activation=None,
+      use_bias=True,
+      kernel_initializer=None,
+      bias_initializer=tf.zeros_initializer(),
+      kernel_regularizer=None,
+      bias_regularizer=None,
+      activity_regularizer=None,
+      kernel_constraint=None,
+      bias_constraint=None,
+      trainable=True,
+      name=None,
+      **kwargs)
+
+  def call(self, inputs, time=None):
+    inputs = tf.convert_to_tensor(inputs, dtype=self.dtype)
+    shape = inputs.get_shape().as_list()
+    if len(shape) > 2: #not predicting
+      # Broadcasting is required for the inputs.
+      outputs = tf.tensordot(inputs, self.kernel, [[len(shape) - 1],[0]])
+      # Reshape the output back to the original ndim of the input.
+      output_shape = shape[:-1] + [self.units]
+      outputs.set_shape(output_shape)
+    else: #predicting
+      outputs = tf.matmul(inputs, self.kernel)
+    if self.use_bias:
+      outputs = tf.nn.bias_add(outputs, self.bias)
+    if self.activation is not None:
+      outputs = self.activation(outputs)  # pylint: disable=not-callable
+
+    def _constrained_outputs(x):
+      index = tf.cast(time / 3 % 10 / 2, dtype=tf.int32) + 3
+      assert x.shape.ndims == 2
+      ones = tf.ones_like(x)[:, :index]
+      zeros = tf.zeros_like(x)[:, index:]
+      mask = tf.concat([ones, zeros], axis=-1)
+      return mask * x
+  
+    if time is not None: #predicting
+      outputs = tf.cond(
+        tf.equal(tf.mod(time, 3), tf.constant(0)),
+        lambda : _constrained_outputs(outputs),
+        lambda : outputs)
+    return outputs
+
+
+class MyDecoder(tf.contrib.seq2seq.BasicDecoder):
+  def __init__(self, cell, helper, initial_state, output_layer=None):
+    super(MyDecoder, self).__init__(cell, helper, initial_state, output_layer)
+
+  def step(self, time, inputs, state, name=None):
+    with ops.name_scope(name, 'BasicDecoderStep', (time, inputs, state)):
+      cell_outputs, cell_state = self._cell(inputs, state)
+      if self._output_layer is not None:
+        cell_outputs = self._output_layer(cell_outputs, time)
+      sample_ids = self._helper.sample(
+        time=time, outputs=cell_outputs, state=cell_state)
+      (finished, next_inputs, next_state) = self._helper.next_inputs(
+        time=time,
+        outputs=cell_outputs,
+        state=cell_state,
+        sample_ids=sample_ids)
+    outputs = BasicDecoderOutput(cell_outputs, sample_ids)
+    return (outputs, next_state, next_inputs, finished)
+
+
 class Decoder():
   def __init__(self, params, mode, embedding_decoder, output_layer):
     self.num_layers = params['decoder_num_layers']
@@ -95,7 +179,7 @@ class Decoder():
           time_major=self.time_major)
 
         #Decoder
-        my_decoder = tf.contrib.seq2seq.BasicDecoder(
+        my_decoder = MyDecoder(
           cell,
           helper,
           decoder_initial_state)
@@ -131,7 +215,7 @@ class Decoder():
               self.embedding_decoder, start_tokens, end_token)
 
           # Decoder
-          my_decoder = tf.contrib.seq2seq.BasicDecoder(
+          my_decoder = MyDecoder(
               cell,
               helper,
               decoder_initial_state,
@@ -283,7 +367,7 @@ class Model(object):
       self.W_emb = tf.get_variable('W_emb', [self.vocab_size, self.hidden_size])
       # Projection
       with tf.variable_scope("decoder/output_projection"):
-        self.output_layer = layers_core.Dense(
+        self.output_layer = MyDense(
             self.vocab_size, use_bias=False, name="output_projection")
       self.logits, self.sample_id, self.final_context_state = self.build_decoder()
 
