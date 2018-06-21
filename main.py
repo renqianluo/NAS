@@ -6,7 +6,6 @@ import os
 import sys
 import argparse
 import numpy as np
-import scipy.stats
 import tensorflow as tf
 from encoder import encoder
 from decoder import decoder
