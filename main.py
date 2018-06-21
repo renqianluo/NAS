@@ -199,8 +199,7 @@ def model_fn(features, labels, mode, params):
     decoder_target = features['decoder_target']
     if params['symmetry']:
       my_encoder = encoder.Model(encoder_input[:,:params['source_length']], encoder_target, params, mode, 'Encoder')
-      tf.get_variable_scope().reuse_variables()
-      my_encoder_sym = encoder.Model(encoder_input[:,params['source_length']:], encoder_target, params, mode, 'Encoder')
+      my_encoder_sym = encoder.Model(encoder_input[:,params['source_length']:], encoder_target, params, mode, 'Encoder', True)
       encoder_arch_emb_symmetry = my_encoder_sym.arch_emb
     else:
       my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
@@ -217,7 +216,7 @@ def model_fn(features, labels, mode, params):
     if params['symmetry']:
       symmetry_loss = tf.nn.l2_loss(my_encoder.arch_emb - encoder_arch_emb_symmetry)
     else:
-      symmetry_loss = tf.constant(0)
+      symmetry_loss = tf.constant(0.0)
     
     total_loss = params['lambda1'] * encoder_loss + params['lambda2'] * symmetry_loss +  params['lambda3'] * decoder_loss + params['weight_decay'] * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
@@ -293,7 +292,7 @@ def model_fn(features, labels, mode, params):
     my_decoder = decoder.Model(encoder_outputs, encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
-    total_loss = params['trade_off'] * encoder_loss + (1 - params['trade_off']) * decoder_loss + params['weight_decay'] * tf.add_n(
+    total_loss = params['lambda1'] * encoder_loss + params['lambda3'] * decoder_loss + params['weight_decay'] * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
     #_log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
     return tf.estimator.EstimatorSpec(

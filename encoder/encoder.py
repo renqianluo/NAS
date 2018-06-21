@@ -82,7 +82,7 @@ class Encoder(object):
 
 
 class Model(object):
-  def __init__(self, x, y, params, mode, scope='Encoder'):
+  def __init__(self, x, y, params, mode, scope='Encoder', reuse=False):
     self.x = x
     self.y = y
     self.params = params
@@ -101,13 +101,13 @@ class Model(object):
     initializer = tf.orthogonal_initializer()
     #initializer = tf.random_uniform_initializer(-self.hidden_size**(-0.5), self.hidden_size**(-0.5))
     tf.get_variable_scope().set_initializer(initializer)
-    self.build_graph(scope=scope)
+    self.build_graph(scope=scope, reuse=reuse)
 
   
-  def build_graph(self, scope=None):
+  def build_graph(self, scope=None, reuse=False):
     tf.logging.info("# creating %s graph ..." % self.mode)
     # Encoder
-    with tf.variable_scope(scope):
+    with tf.variable_scope(scope, reuse=reuse):
       self.W_emb = tf.get_variable('W_emb', [self.vocab_size, self.emb_size])
       self.arch_emb, self.predict_value, self.encoder_outputs, self.encoder_state = self.build_encoder()
       if self.mode != tf.estimator.ModeKeys.PREDICT:
