@@ -111,8 +111,8 @@ def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
     a = tf.random_uniform([], 0, 5, dtype=tf.int32)
     b = tf.random_uniform([], 0, 5, dtype=tf.int32)
     half_length = params['source_length'] // 2
-    encoder_src = tf.concat(encoder_src[:6*a], encoder_src[6*a+3:6*a+6], encoder_src[6*a:6*a+3], encoder_src[6*(a+1):half_length+6*b],
-      encoder_src[half_length+6*b+3:half_length+6*b+6], encoder_src[half_length+6*b:half_length+6*b+3], encoder_src[half_length+6*(b+1):], axis=0) 
+    encoder_src = tf.concat([encoder_src[:6*a], encoder_src[6*a+3:6*a+6], encoder_src[6*a:6*a+3], encoder_src[6*(a+1):half_length+6*b],
+      encoder_src[half_length+6*b+3:half_length+6*b+6], encoder_src[half_length+6*b:half_length+6*b+3], encoder_src[half_length+6*(b+1):]], axis=0) 
     return encoder_src, encoder_tgt, decoder_src, decoder_tgt
 
   dataset = dataset.map(decode_record)
