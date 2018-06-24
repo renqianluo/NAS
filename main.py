@@ -42,9 +42,7 @@ parser.add_argument('--decoder_dropout', type=float, default=0.0)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
 parser.add_argument('--encoder_vocab_size', type=int, default=21)
 parser.add_argument('--decoder_vocab_size', type=int, default=21)
-parser.add_argument('--lambda1', type=float, default=0.5)
-parser.add_argument('--lambda2', type=float, default=0.0)
-parser.add_argument('--lambda3', type=float, default=0.5)
+parser.add_argument('--trade_off', type=float, default=0.5)
 parser.add_argument('--train_epochs', type=int, default=1000)
 parser.add_argument('--eval_frequency', type=int, default=10)
 parser.add_argument('--batch_size', type=int, default=128)
@@ -207,14 +205,9 @@ def model_fn(features, labels, mode, params):
     encoder_target = features['encoder_target']
     decoder_input = features['decoder_input']
     decoder_target = features['decoder_target']
-    if params['symmetry']:
-      my_encoder = encoder.Model(encoder_input[:,:params['source_length']], encoder_target, params, mode, 'Encoder')
-      my_encoder_sym = encoder.Model(encoder_input[:,params['source_length']:], encoder_target, params, mode, 'Encoder', True)
-      encoder_arch_emb_symmetry = my_encoder_sym.arch_emb
-    else:
-      my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
+    my_encoder = encoder.Model(encoder_input, encoder_target, params, mode, 'Encoder')
+    #my_encoder_sym = encoder.Model(encoder_input[:,params['source_length']:], encoder_target, params, mode, 'Encoder', True)
     encoder_outputs = my_encoder.encoder_outputs
-    #encoder_state = my_encoder.encoder_state
     encoder_state = my_encoder.arch_emb
     encoder_state.set_shape([None, params['decoder_hidden_size']])
     encoder_state = tf.contrib.rnn.LSTMStateTuple(encoder_state, encoder_state)
@@ -223,12 +216,7 @@ def model_fn(features, labels, mode, params):
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
    
-    if params['symmetry']:
-      symmetry_loss = tf.nn.l2_loss(my_encoder.arch_emb - encoder_arch_emb_symmetry)
-    else:
-      symmetry_loss = tf.constant(0.0)
-    
-    total_loss = params['lambda1'] * encoder_loss + params['lambda2'] * symmetry_loss +  params['lambda3'] * decoder_loss + params['weight_decay'] * tf.add_n(
+    total_loss = params['trade_off'] * encoder_loss +  params['trade_off'] * decoder_loss + params['weight_decay'] * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
 
     global_step = tf.train.get_or_create_global_step()
