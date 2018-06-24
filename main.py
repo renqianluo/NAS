@@ -216,7 +216,7 @@ def model_fn(features, labels, mode, params):
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
    
-    total_loss = params['trade_off'] * encoder_loss +  params['trade_off'] * decoder_loss + params['weight_decay'] * tf.add_n(
+    total_loss = params['trade_off'] * encoder_loss + (1 - params['trade_off']) * decoder_loss + params['weight_decay'] * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
 
     global_step = tf.train.get_or_create_global_step()
@@ -290,7 +290,7 @@ def model_fn(features, labels, mode, params):
     my_decoder = decoder.Model(encoder_outputs, encoder_state, decoder_input, decoder_target, params, mode, 'Decoder')
     encoder_loss = my_encoder.loss
     decoder_loss = my_decoder.loss
-    total_loss = params['lambda1'] * encoder_loss + params['lambda3'] * decoder_loss + params['weight_decay'] * tf.add_n(
+    total_loss = params['trade_off'] * encoder_loss + (1-params['trade_off']) * decoder_loss + params['weight_decay'] * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
     #_log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
     return tf.estimator.EstimatorSpec(
