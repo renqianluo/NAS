@@ -113,6 +113,7 @@ def input_fn(params, mode, data_dir, batch_size, num_epochs=1):
     half_length = params['source_length'] // 2
     encoder_src = tf.concat([encoder_src[:6*a], encoder_src[6*a+3:6*a+6], encoder_src[6*a:6*a+3], encoder_src[6*(a+1):half_length+6*b],
       encoder_src[half_length+6*b+3:half_length+6*b+6], encoder_src[half_length+6*b:half_length+6*b+3], encoder_src[half_length+6*(b+1):]], axis=0) 
+    decoder_tgt = encoder_src
     return encoder_src, encoder_tgt, decoder_src, decoder_tgt
 
   dataset = dataset.map(decode_record)
@@ -188,7 +189,7 @@ def predict_from_file(estimator, batch_size, decode_from_file, decode_to_file=No
     output_filename = '%s.result' % decode_from_file
     
   tf.logging.info('Writing results into {0}'.format(output_filename))
-  with tf.gfile.Open(output_filename, 'w') as f:
+  with tf.gfile.Open(output_filename+'.arch', 'w') as f:
     for res in results:
       f.write('%s\n' % (res))
   with tf.gfile.Open(output_filename+'.new_arch', 'w') as f:
