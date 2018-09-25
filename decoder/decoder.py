@@ -353,6 +353,7 @@ class Model(object):
     self.mode = mode
     self.vocab_size = params['decoder_vocab_size']
     self.num_layers = params['decoder_num_layers']
+    self.decoder_length = params['decoder_length']
     self.time_major = params['time_major']
     self.hidden_size = params['decoder_hidden_size']
     self.weight_decay = params['weight_decay']
@@ -363,7 +364,7 @@ class Model(object):
 
     # Initializer
     #initializer = tf.orthogonal_initializer()
-    initializer = tf.random_uniform_initializer(-0.08, 0.08)
+    initializer = tf.random_uniform_initializer(-0.1, 0.1)
     tf.get_variable_scope().set_initializer(initializer)
 
     ## Build graph
