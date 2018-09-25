@@ -92,6 +92,7 @@ class MyDense(tf.layers.Dense):
       trainable=True,
       name=None,
       **kwargs)
+    self.branch_length = branch_length
 
   def call(self, inputs, time=None):
     inputs = tf.convert_to_tensor(inputs, dtype=self.dtype)
