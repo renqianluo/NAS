@@ -16,6 +16,7 @@ class Encoder(object):
     self.emb_size = params['encoder_emb_size']
     self.mlp_num_layers = params['mlp_num_layers']
     self.mlp_hidden_size = params['mlp_hidden_size']
+    self.mlp_dropout = params['mlp_dropout']
     self.source_length = params['source_length']
     self.encoder_length = params['encoder_length']
     self.vocab_size = params['encoder_vocab_size']
@@ -29,8 +30,9 @@ class Encoder(object):
     x = tf.gather(self.W_emb, x)
     if self.source_length != self.encoder_length:
       tf.logging.info('Concacting source sequence along depth')
-      assert self.source_length == 3*self.encoder_length
-      x = tf.reshape(x, [batch_size, self.source_length//3, 3*self.emb_size])
+      assert self.source_length % self.encoder_length == 0
+      ratio = self.source_length // self.encoder_length
+      x = tf.reshape(x, [batch_size, self.source_length // ratio, ratio * self.emb_size])
     if self.time_major:
       x = tf.transpose(x, [1,0,2])
     cell_list = []
@@ -65,13 +67,8 @@ class Encoder(object):
     
     for i in range(self.mlp_num_layers):
       name = 'mlp_{}'.format(i)
+      x = tf.layers.dropout(x, self.mlp_dropout)
       x = tf.layers.dense(x, self.mlp_hidden_size, activation=tf.nn.relu, name=name)
-      x = tf.layers.batch_normalization(
-        x, axis=1,
-        momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
-        center=True, scale=True, training=is_training, fused=True
-        )
-      x = tf.layers.dropout(x, 0.5)
     self.predict_value = tf.layers.dense(x, 1, activation=tf.sigmoid, name='regression')
     return {
       'arch_emb' : self.arch_emb,
@@ -97,9 +94,10 @@ class Model(object):
     self.is_training = self.mode == tf.estimator.ModeKeys.TRAIN
     if not self.is_training:
       self.params['encoder_dropout'] = 0.0
+      self.params['mlp_dropout'] = 0.0
 
-    initializer = tf.orthogonal_initializer()
-    #initializer = tf.random_uniform_initializer(-self.hidden_size**(-0.5), self.hidden_size**(-0.5))
+    #initializer = tf.orthogonal_initializer()
+    initializer = tf.random_uniform_initializer(-0.1, 0.1)
     tf.get_variable_scope().set_initializer(initializer)
     self.build_graph(scope=scope, reuse=reuse)
 

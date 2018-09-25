@@ -65,6 +65,7 @@ class AttentionMultiCell(tf.nn.rnn_cell.MultiRNNCell):
 class MyDense(tf.layers.Dense):
   def __init__(self,
       units,
+      branch_length=3,
       activation=None,
       use_bias=True,
       kernel_initializer=None,
@@ -108,19 +109,27 @@ class MyDense(tf.layers.Dense):
     if self.activation is not None:
       outputs = self.activation(outputs)  # pylint: disable=not-callable
 
-    def _constrained_outputs(x):
-      index = tf.cast(time / 3 % 10 / 2, dtype=tf.int32) + 3
+    def _index(x):
+      index = tf.cast(time / self.branch_length % 10 / 2, dtype=tf.int32) + 3
       assert x.shape.ndims == 2
-      ones = tf.ones_like(x)[:, :index]
-      zeros = tf.zeros_like(x)[:, index:]
-      mask = tf.concat([ones, zeros], axis=-1)
+      mask_1 = tf.zeros_like(x)[:, :1]
+      ones = tf.ones_like(x)[:, 1:index]
+      mask_2 = tf.zeros_like(x)[:, index:]
+      mask = tf.concat([mask_1, ones, mask_2], axis=-1)
+      return mask * x
+    
+    def _op(x):
+      mask_1 = tf.zeros_like(x)[:, :7]
+      ones = tf.ones_like(x)[:, 7:]
+      mask = tf.concat([mask_1, ones], axis=-1)
       return mask * x
   
     if time is not None: #predicting
+      outputs = tf.nn.softmax(outputs)
       outputs = tf.cond(
-        tf.equal(tf.mod(time, 3), tf.constant(0)),
-        lambda : _constrained_outputs(outputs),
-        lambda : outputs)
+        tf.equal(tf.mod(time, self.branch_length), tf.constant(0)),
+        lambda : _index(outputs),
+        lambda : _op(outputs))
     return outputs
 
 
@@ -350,6 +359,7 @@ class Model(object):
     self.is_traing = mode == tf.estimator.ModeKeys.TRAIN
     if not self.is_traing:
       self.params['decoder_dropout'] = 0.0
+    self.branch_length = self.decoder_length // 2 // 5 // 2  # 2 types of cell, 5 nodes, 2 branchs
 
     # Initializer
     #initializer = tf.orthogonal_initializer()
@@ -368,7 +378,7 @@ class Model(object):
       # Projection
       with tf.variable_scope("decoder/output_projection"):
         self.output_layer = MyDense(
-            self.vocab_size, use_bias=False, name="output_projection")
+            self.vocab_size, branch_length=self.branch_length, use_bias=False, name="output_projection")
       self.logits, self.sample_id, self.final_context_state = self.build_decoder()
 
       ## Loss
