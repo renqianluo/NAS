@@ -14,7 +14,7 @@ import json
 import collections
 
 _NUM_SAMPLES = {
-  'train' : 10000,
+  'train' : 1000,
   'test' : 50,
 }
 
