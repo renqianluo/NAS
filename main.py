@@ -389,9 +389,6 @@ def pairwise_accuracy(la, lb):
       if la[i] < la[j] and lb[i] < lb[j]:
         count += 1
         continue
-      if abs(la[i]-la[j]) <= 0.02 and abs(lb[i]-lb[j]) <=0.02:
-        count += 1
-        continue
   return float(count) / total
 
 def main(unparsed):
